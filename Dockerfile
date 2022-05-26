@@ -1,28 +1,34 @@
-FROM golang:1.17-alpine AS builder
-
-RUN apk --no-cache add git ca-certificates
+FROM golang:1.18-alpine AS builder
 
 WORKDIR /go/src/github.com/Max-Sum/fcbreak
+
+COPY go.mod .
+COPY go.sum .
+
+RUN go mod download
+
 COPY . .
 
-RUN cd cmd/client && CGO_ENABLED=0 go build \
- && cd cmd/server && CGO_ENABLED=0 go build
+RUN CGO_ENABLED=0 go build ./cmd/client \
+ && CGO_ENABLED=0 go build ./cmd/server
+
+RUN ls
 
 # Server Image
 FROM scratch as server
 
-WORKDIR /app
+WORKDIR /
 COPY --from=builder \
-     /go/src/github.com/Max-Sum/fcbreak/cmd/server server
-ENTRYPOINT [ "/app/client" ]
-CMD "-l" ":8707"
+     /go/src/github.com/Max-Sum/fcbreak/server /server
+ENTRYPOINT [ "/server" ]
+CMD ["-l", ":8707"]
 
 # Client Image
-FROM alpine as client
+FROM scratch as client
 
-WORKDIR /app
+WORKDIR /
 COPY --from=builder \
-     /go/src/github.com/Max-Sum/fcbreak/cmd/client client
+     /go/src/github.com/Max-Sum/fcbreak/client /client
 
-ENTRYPOINT [ "/app/client" ]
-CMD "-c" "config.ini"
+ENTRYPOINT [ "/client" ]
+CMD ["-c", "config.ini"]
