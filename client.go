@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	reuse "github.com/libp2p/go-reuseport"
 )
@@ -30,8 +31,10 @@ func (c *Client) Start(s *ReqService) error {
 			err := c.Register(&s.Service, l.Addr().String())
 			if err != nil && err != io.EOF {
 				log.Printf("Register Error: %v", err)
-				log.Printf("Retrying...")
 			}
+			log.Printf("Wait 5s...")
+			time.Sleep(time.Duration(5)*time.Second)		
+			log.Printf("Retrying...")
 		}
 	}()
 	return s.Serve(l)
