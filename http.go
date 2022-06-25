@@ -101,7 +101,11 @@ func (s *HTTPService) auth(r *http.Request, w http.ResponseWriter) {
 }
 
 func (s *HTTPService) proxiedFromServer(r *http.Request) bool {
-	serverIP, err := net.ResolveIPAddr("ip", s.reqserv.clientCfg.ServerAddr)
+	serverUrl, err := url.Parse(s.reqserv.clientCfg.Server)
+	if err != nil {
+		return false
+	}
+	serverIP, err := net.ResolveIPAddr("ip", serverUrl.Hostname())
 	if err != nil {
 		return false
 	}

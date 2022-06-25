@@ -1,12 +1,17 @@
 package fcbreak
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"sync"
 	"time"
 
@@ -19,11 +24,13 @@ type ReqService struct {
 	BindAddr  net.Addr
 	cfg       ServiceConf
 	clientCfg *ClientCommonConf
+	client    *http.Client
 	proxy     *httputil.ReverseProxy
+	stopCh    chan (struct{})
 }
 
 func NewReqService(name string, cfg ServiceConf, clientCfg *ClientCommonConf) *ReqService {
-	return &ReqService{
+	s := &ReqService{
 		Service: Service{
 			mutex:      sync.RWMutex{},
 			Name:       name,
@@ -32,7 +39,19 @@ func NewReqService(name string, cfg ServiceConf, clientCfg *ClientCommonConf) *R
 		},
 		cfg:       cfg,
 		clientCfg: clientCfg,
+		client:    &http.Client{},
+		stopCh:    make(chan struct{}),
 	}
+	s.client.Transport = &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		Dial:                s.dialToServer,
+		MaxIdleConns:        0,
+		MaxIdleConnsPerHost: 0,
+		MaxConnsPerHost:     0,
+		IdleConnTimeout:     120 * time.Second,
+		DisableKeepAlives:   false,
+	}
+	return s
 }
 
 type ServConn struct {
@@ -100,7 +119,11 @@ func (l *servConnListener) Accept() (net.Conn, error) {
 		conn.Close()
 		return nil, err
 	}
-	serverIP, err := net.ResolveIPAddr("ip", l.clientCfg.ServerAddr)
+	serverUrl, err := url.Parse(l.clientCfg.Server)
+	if err != nil {
+		return nil, err
+	}
+	serverIP, err := net.ResolveIPAddr("ip", serverUrl.Hostname())
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -224,4 +247,109 @@ func (s *ReqService) Close() error {
 		}
 	}
 	return nil
+}
+
+func (s *ReqService) dialToServer(network string, addr string) (net.Conn, error) {
+	return reuse.Dial("tcp", s.BindAddr.String(), addr)
+}
+
+func (s *ReqService) register() error {
+	addr := fmt.Sprintf("%s/services", s.clientCfg.Server)
+	str, err := json.Marshal(s.Service)
+	if err != nil {
+		return err
+	}
+	b := bytes.NewBuffer(str)
+	req, err := http.NewRequest("POST", addr, b)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("Register [" + s.Name + "] error: " + string(by))
+	}
+	return json.Unmarshal(by, &s.Service)
+}
+
+func (s *ReqService) refresh() error {
+	addr := fmt.Sprintf("%s/services/%s", s.clientCfg.Server, s.Name)
+	str, err := json.Marshal(s.Service)
+	if err != nil {
+		return err
+	}
+	b := bytes.NewBuffer(str)
+	req, err := http.NewRequest("PUT", addr, b)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("Refresh [" + s.Name + "] error: " + string(by))
+	}
+	return json.Unmarshal(by, &s.Service)
+}
+
+func (s *ReqService) delete() error {
+	addr := fmt.Sprintf("%s/services/%s", s.clientCfg.Server, s.Name)
+	req, err := http.NewRequest("DELETE", addr, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		by, _ := io.ReadAll(resp.Body)
+		return errors.New("Delete [" + s.Name + "] error: " + string(by))
+	}
+	return nil
+}
+
+func (s *ReqService) refreshTimer() {
+	for {
+		select {
+		case <-time.After(time.Duration(s.clientCfg.HeartbeatInterval) * time.Second):
+			s.refresh()
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+func (s *ReqService) Start() error {
+	l, err := s.Listen()
+	if err != nil {
+		return err
+	}
+	s.BindAddr = l.Addr()
+	if err := s.register(); err != nil {
+		return err
+	}
+	go s.refreshTimer()
+	go s.Serve(l)
+	return nil
+}
+
+func (s *ReqService) Stop() error {
+	s.delete()
+	s.stopCh <- struct{}{}
+	return s.Close()
 }

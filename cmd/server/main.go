@@ -6,6 +6,7 @@ import (
 
 	"github.com/Max-Sum/fcbreak"
 	"github.com/akamensky/argparse"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -20,6 +21,8 @@ func main() {
 		fmt.Print(parser.Usage(err))
 		os.Exit(1)
 	}
+
+	gin.SetMode(gin.ReleaseMode)
 	s := fcbreak.NewServer()
 	s.ListenAndServe(*addr)
 }

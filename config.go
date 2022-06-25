@@ -2,11 +2,8 @@ package fcbreak
 
 type ClientCommonConf struct {
 	// ServerAddr specifies the address of the server to connect to. By
-	// default, this value is "0.0.0.0".
-	ServerAddr string `ini:"server_addr" json:"server_addr"`
-	// ServerPort specifies the port to connect to the server on. By default,
-	// this value is 7001.
-	ServerPort int `ini:"server_port" json:"server_port"`
+	// default, this value is "http://0.0.0.0:7001".
+	Server string `ini:"server" json:"server"`
 	// HeartBeatInterval specifies at what interval heartbeats are sent to the
 	// server, in seconds. It is not recommended to change this value. By
 	// default, this value is 30.
@@ -19,8 +16,7 @@ type ClientCommonConf struct {
 
 func GetDefaultClientConf() ClientCommonConf {
 	return ClientCommonConf{
-		ServerAddr:        "0.0.0.0",
-		ServerPort:        7001,
+		Server:            "http://0.0.0.0:7001",
 		HeartbeatInterval: 30,
 		HeartbeatTimeout:  90,
 	}

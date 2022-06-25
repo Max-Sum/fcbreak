@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
 
 	"github.com/Max-Sum/fcbreak"
 	"github.com/akamensky/argparse"
 )
+
+var svcs map[string]*fcbreak.ReqService
 
 func main() {
 	parser := argparse.NewParser("natbreaker-client", "Reflect connectors info back")
@@ -32,19 +35,36 @@ func main() {
 		log.Fatalf("%v", err)
 		os.Exit(2)
 	}
-	// Create Client
-	var wg sync.WaitGroup
-	client := fcbreak.NewClient(commonCfg)
+
+	svcs = make(map[string]*fcbreak.ReqService)
+
+	defer func() {
+		for _, svc := range svcs {
+			svc.Stop()
+		}
+	}()
+
+	// Start Client
 	for k, v := range serverCfgs {
-		wg.Add(1)
 		svc := fcbreak.NewReqService(k, v, &commonCfg)
-		go func() {
-			err := client.Start(svc)
-			if err != nil {
-				log.Fatalf("%v", err)
-			}
-			wg.Done()
-		}()
+		err := svc.Start()
+		if err != nil {
+			log.Printf("%v", err)
+			return
+		}
+		svcs[svc.Name] = svc
 	}
-	wg.Wait()
+
+	log.Println("Up and running.")
+
+	// Gracefully Stop
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+
+	<-sigc
+	log.Println("Exiting...")
 }
