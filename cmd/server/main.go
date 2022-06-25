@@ -12,7 +12,6 @@ func main() {
 	parser := argparse.NewParser("natbreaker-reflector", "Reflect connectors info back")
 	// Create string flag
 	addr := parser.String("l", "listen", &argparse.Options{Required: true, Help: "Listening Address"})
-	//webAddr := parser.String("w", "string", &argparse.Options{Required: true, Help: "Web Listening Address"})
 	// Parse input
 	err := parser.Parse(os.Args)
 	if err != nil {

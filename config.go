@@ -27,6 +27,7 @@ func GetDefaultClientConf() ClientCommonConf {
 }
 
 type ServiceConf struct {
+	Name            string `ini:"-" json:"name"`
 	Scheme          string `ini:"type" json:"type"`
 	LocalAddr       string `ini:"local_ip" json:"local_ip"`
 	LocalPort       int    `ini:"local_port" json:"local_port"`
@@ -38,12 +39,14 @@ type ServiceConf struct {
 }
 
 type HTTPServiceConf struct {
-	CacheTime  int    `ini:"http_cache_time"`
-	AltSvc     bool   `ini:"http_altsvc"`
-	NIPDomain  string `ini:"http_altsvc_nip_domain"`
-	TLSCert    string `ini:"https_crt"`
-	TLSKey     string `ini:"https_key"`
-	TLSBackend bool   `ini:"https_backend"`
+	Username  string `ini:"http_username"`
+	Password  string `ini:"http_password"`
+	CacheTime int    `ini:"http_cache_time"`
+	AltSvc    bool   `ini:"http_altsvc"`
+	NIPDomain string `ini:"http_altsvc_nip_domain"`
+	Backend   string `ini:"http_backend"`
+	TLSCert   string `ini:"https_crt"`
+	TLSKey    string `ini:"https_key"`
 }
 
 func GetDefaultServiceConf() ServiceConf {
@@ -56,12 +59,14 @@ func GetDefaultServiceConf() ServiceConf {
 		RemoteAddr: "",
 		RemotePort: 0,
 		HTTPServiceConf: HTTPServiceConf{
-			CacheTime:  300,
-			TLSBackend: false,
-			TLSCert:    "",
-			TLSKey:     "",
-			AltSvc:     false,
-			NIPDomain:  "",
+			Username:  "",
+			Password:  "",
+			CacheTime: 300,
+			Backend:   "http",
+			TLSCert:   "",
+			TLSKey:    "",
+			AltSvc:    false,
+			NIPDomain: "",
 		},
 	}
 }

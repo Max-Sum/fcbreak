@@ -40,6 +40,7 @@ func UnmarshalFromIni(section *ini.Section) (fcbreak.ServiceConf, error) {
 	if err != nil {
 		return cfg, err
 	}
+	cfg.Name = section.Name()
 	return cfg, nil
 }
 

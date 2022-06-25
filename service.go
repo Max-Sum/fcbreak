@@ -6,10 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"net/http/httputil"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -150,24 +147,8 @@ func (s *ReqService) Listen() (net.Listener, error) {
 func (s *ReqService) Serve(l net.Listener) (err error) {
 	// Proxy HTTP
 	if s.Scheme == "http" || s.Scheme == "https" {
-		u := &url.URL{
-			Scheme: "http",
-			Host:   fmt.Sprintf("%s:%d", s.cfg.LocalAddr, s.cfg.LocalPort),
-		}
-		if s.cfg.TLSBackend {
-			u.Scheme = "https"
-		}
-		s.proxy = httputil.NewSingleHostReverseProxy(u)
-		s.proxy.ModifyResponse = s.ModifyResponse
-		serv := &http.Server{
-			ConnContext: SaveConnInContext,
-			Handler:     s,
-		}
-		if s.Scheme == "http" {
-			return serv.Serve(l)
-		}
-
-		return serv.ServeTLS(l, s.cfg.HTTPServiceConf.TLSCert, s.cfg.HTTPServiceConf.TLSKey)
+		httpServ := &HTTPService{reqserv: s}
+		return httpServ.Serve(l)
 	}
 	// Proxy TCP
 	var conn net.Conn
@@ -230,79 +211,6 @@ func (s *ReqService) Handle(conn net.Conn) error {
 		log.Printf("copy err %v\n", err)
 	}
 	return err
-}
-
-func (s *ReqService) proxiedFromServer(r *http.Request) bool {
-	serverIP, err := net.ResolveIPAddr("ip", s.clientCfg.ServerAddr)
-	if err != nil {
-		return false
-	}
-	if addr, ok := GetConn(r).RemoteAddr().(*ServAddr); ok {
-		proxyIP, _, err := net.SplitHostPort(addr.ProxyAddr.String())
-		if err != nil {
-			return false
-		}
-		return proxyIP == serverIP.String()
-	}
-	return false
-}
-
-func (s *ReqService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	u := r.URL
-	if r.TLS == nil {
-		u.Scheme = "http"
-	} else {
-		u.Scheme = "https"
-	}
-	// Proxied from Server
-	u.Host, _ = s.exposedAddr()
-	if s.proxiedFromServer(r) && (!s.cfg.AltSvc || !SupportAltSvc(r.UserAgent())) {
-		// Redirect with Cache Control
-		h := w.Header()
-		_, hadCT := h["Content-Type"]
-		h.Set("Cache-Control", fmt.Sprintf("max-age=%ds", int(s.cfg.HTTPServiceConf.CacheTime)))
-		h.Set("Location", u.String())
-		if !hadCT && (r.Method == "GET" || r.Method == "HEAD") {
-			h.Set("Content-Type", "text/html; charset=utf-8")
-		}
-		w.WriteHeader(http.StatusPermanentRedirect)
-		// Shouldn't send the body for POST or HEAD; that leaves GET.
-		if !hadCT && r.Method == "GET" {
-			body := "<a href=\"" + u.String() + "\">Redirected</a>.\n"
-			fmt.Fprintln(w, body)
-		}
-		return
-	}
-	// transparent
-	s.proxy.ServeHTTP(w, r)
-}
-
-func (s *ReqService) exposedAddr() (string, error) {
-	if len(s.cfg.NIPDomain) == 0 {
-		return s.ExposedAddr, nil
-	}
-	host, port, err := net.SplitHostPort(s.ExposedAddr)
-	if err != nil {
-		return s.ExposedAddr, err
-	}
-	host = strings.ReplaceAll(host, ".", "-") + "." + s.cfg.NIPDomain
-	return host + ":" + port, nil
-}
-
-func (s *ReqService) ModifyResponse(r *http.Response) error {
-	if !s.cfg.AltSvc || !SupportAltSvc(r.Request.UserAgent()) {
-		return nil
-	}
-	addr, err := s.exposedAddr()
-	if err != nil {
-		return err
-	}
-	if u, ok := r.Request.Header["Alt-Used"]; ok && u[0] == addr {
-		return nil
-	}
-	altsvc := fmt.Sprintf("h2=\"%s\"; ma=%d; persist=1", addr, s.cfg.CacheTime)
-	r.Header.Add("Alt-Svc", altsvc)
-	return nil
 }
 
 func (s *ReqService) Close() error {
