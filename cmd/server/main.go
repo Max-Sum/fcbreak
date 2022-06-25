@@ -13,6 +13,8 @@ func main() {
 	parser := argparse.NewParser("natbreaker-reflector", "Reflect connectors info back")
 	// Create string flag
 	addr := parser.String("l", "listen", &argparse.Options{Required: true, Help: "Listening Address"})
+	user := parser.String("u", "user", &argparse.Options{Help: "Authentication Username"})
+	pass := parser.String("p", "pass", &argparse.Options{Help: "Authentication Password"})
 	// Parse input
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -24,5 +26,11 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	s := fcbreak.NewServer()
+	if user != nil {
+		s.User = *user
+	}
+	if pass != nil {
+		s.Pass = *pass
+	}
 	s.ListenAndServe(*addr)
 }

@@ -154,14 +154,18 @@ func (svc ServiceInfo) Timeout(s *Server) {
 }
 
 type Server struct {
-	services map[string]ServiceInfo
+	User     string
+	Pass     string
 	mutex    sync.RWMutex
+	services map[string]ServiceInfo
 }
 
 func NewServer() *Server {
 	return &Server{
-		services: map[string]ServiceInfo{},
+		User:     "",
+		Pass:     "",
 		mutex:    sync.RWMutex{},
+		services: map[string]ServiceInfo{},
 	}
 }
 
@@ -239,7 +243,7 @@ func (s *Server) DelService(name string) error {
 func (s *Server) GetServices(c *gin.Context) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	c.JSON(http.StatusOK, s.services)
+	c.IndentedJSON(http.StatusOK, s.services)
 }
 
 func (s *Server) GetServiceByName(c *gin.Context) {
@@ -247,35 +251,35 @@ func (s *Server) GetServiceByName(c *gin.Context) {
 	defer s.mutex.RUnlock()
 	name := c.Param("name")
 	if service, ok := s.services[name]; ok {
-		c.JSON(http.StatusOK, service)
+		c.IndentedJSON(http.StatusOK, service)
 		return
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{"message": "service not found"})
+	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 }
 
 func (s *Server) PostService(c *gin.Context) {
 	svc := DefaultService()
 	if err := c.BindJSON(&svc); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Register Service [%s]: %s://%s -> %s://%s", svc.Name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	if err := s.AddService(svc); err != nil {
 		log.Printf("Register Service [%s] Error: %v", svc.Name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, svc)
+	c.IndentedJSON(http.StatusOK, svc)
 }
 
 func (s *Server) PutService(c *gin.Context) {
 	name := c.Param("name")
 	svc := DefaultService()
 	if err := c.BindJSON(&svc); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	svc.ExposedAddr = c.Request.RemoteAddr
@@ -288,11 +292,11 @@ func (s *Server) PutService(c *gin.Context) {
 	}
 	if err != nil {
 		log.Printf("Update Service [%s] Error: %v", svc.Name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, svc)
+	c.IndentedJSON(http.StatusOK, svc)
 }
 
 func (s *Server) DeleteService(c *gin.Context) {
@@ -300,10 +304,10 @@ func (s *Server) DeleteService(c *gin.Context) {
 	log.Printf("Delete Service [%s]", name)
 	if err := s.DelService(name); err != nil {
 		log.Printf("Delete Service [%s] Error: %v", name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "service deleted"})
+	c.IndentedJSON(http.StatusOK, gin.H{"message": "service deleted"})
 }
 
 func (s *Server) ListenAndServe(addr string) {
@@ -313,12 +317,18 @@ func (s *Server) ListenAndServe(addr string) {
 		Handler:     router,
 		IdleTimeout: 30 * time.Minute,
 	}
+	var r *gin.RouterGroup
+	if s.User != "" && s.Pass != "" {
+		r = router.Group("/", gin.BasicAuth(gin.Accounts{s.User: s.Pass}))
+	} else {
+		r = router.Group("/")
+	}
 
-	router.GET("/services", s.GetServices)
-	router.GET("/services/:name", s.GetServiceByName)
-	router.POST("/services", s.PostService)
-	router.PUT("/services/:name", s.PutService)
-	router.DELETE("/services/:name", s.DeleteService)
+	r.GET("/services", s.GetServices)
+	r.GET("/services/:name", s.GetServiceByName)
+	r.POST("/services", s.PostService)
+	r.PUT("/services/:name", s.PutService)
+	r.DELETE("/services/:name", s.DeleteService)
 
 	serv.ListenAndServe()
 }
