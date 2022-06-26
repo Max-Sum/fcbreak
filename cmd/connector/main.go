@@ -161,6 +161,8 @@ func UpdateIPTables(svcs map[string]*fcbreak.ServiceInfo, serverHostname string)
 		return err
 	}
 	if exists {
+		ipt.DeleteIfExists("nat", "OUTPUT", "-j", ChainName)
+		ipt.DeleteIfExists("nat", "PREROUTING", "-j", ChainName)
 		if err = ipt.ClearAndDeleteChain("nat", ChainName); err != nil {
 			return err
 		}
