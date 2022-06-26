@@ -64,3 +64,10 @@ local_ip = 127.0.0.1
 local_port = 22
 remote_port = 2200
 ```
+
+Connector:
+```
+sudo ./connector
+    -s http[s]://[<user>:<pass>@]<server host>:<server port> # Server API
+    [-i <interval>]               # Update Interval, default 300s
+```
