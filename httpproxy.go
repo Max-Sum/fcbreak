@@ -43,10 +43,10 @@ func (hp *HTTPProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 func (hp *HTTPProxy) InfoHandler(rw http.ResponseWriter, req *http.Request) {
 	clashTemp := `proxies:
-  - {name: %[1]s, type: http, server: %[3]s, port: %[4]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: false}
-  - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: false}`
-	quanxTemp := `http=%[3]s:%[4]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=true, fast-open=false, udp-relay=false, tag=%[1]s
-http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=true, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
+  - {name: %[1]s, type: http, server: %[3]s, port: %[4]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}
+  - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}`
+	quanxTemp := `http=%[3]s:%[4]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s
+http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
 	name := hp.s.Cfg.Name
 	scheme := hp.s.Cfg.Scheme
 	eip, eportStr, err := net.SplitHostPort(hp.s.ExposedAddr)
@@ -77,13 +77,14 @@ http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s
 	tls := scheme == "https"
 	user := hp.s.Cfg.Username
 	pass := hp.s.Cfg.Password
+	tlsInsecure := hp.s.Cfg.ProxyInsecure
 	switch req.URL.Path {
 	case "/clash":
-		fmt.Fprintf(rw, clashTemp, name, host, eip, eport, rip, rport, tls, user, pass)
+		fmt.Fprintf(rw, clashTemp, name, host, eip, eport, rip, rport, tls, user, pass, tlsInsecure)
 	case "/quan":
 		fallthrough
 	case "/quanx":
-		fmt.Fprintf(rw, quanxTemp, name, host, eip, eport, rip, rport, tls, user, pass)
+		fmt.Fprintf(rw, quanxTemp, name, host, eip, eport, rip, rport, tls, user, pass, !tlsInsecure)
 	default:
 		http.NotFound(rw, req)
 	}

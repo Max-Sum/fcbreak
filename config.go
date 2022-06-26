@@ -35,14 +35,15 @@ type ServiceConf struct {
 }
 
 type HTTPServiceConf struct {
-	Username  string `ini:"http_username"`
-	Password  string `ini:"http_password"`
-	CacheTime int    `ini:"http_cache_time"`
-	AltSvc    bool   `ini:"http_altsvc"`
-	NIPDomain string `ini:"http_altsvc_nip_domain"`
-	Backend   string `ini:"http_backend"`
-	TLSCert   string `ini:"https_crt"`
-	TLSKey    string `ini:"https_key"`
+	Username      string `ini:"http_username"`
+	Password      string `ini:"http_password"`
+	CacheTime     int    `ini:"http_cache_time"`
+	AltSvc        bool   `ini:"http_altsvc"`
+	NIPDomain     string `ini:"http_nip_domain"`
+	Backend       string `ini:"http_backend"`
+	TLSCert       string `ini:"https_crt"`
+	TLSKey        string `ini:"https_key"`
+	ProxyInsecure bool   `ini:"https_proxy_skip_cert_verification"`
 }
 
 func GetDefaultServiceConf() ServiceConf {
@@ -55,14 +56,15 @@ func GetDefaultServiceConf() ServiceConf {
 		RemoteAddr: "",
 		RemotePort: 0,
 		HTTPServiceConf: HTTPServiceConf{
-			Username:  "",
-			Password:  "",
-			CacheTime: 300,
-			Backend:   "http",
-			TLSCert:   "",
-			TLSKey:    "",
-			AltSvc:    false,
-			NIPDomain: "",
+			Username:      "",
+			Password:      "",
+			CacheTime:     300,
+			Backend:       "http",
+			TLSCert:       "",
+			TLSKey:        "",
+			AltSvc:        false,
+			ProxyInsecure: false,
+			NIPDomain:     "",
 		},
 	}
 }
