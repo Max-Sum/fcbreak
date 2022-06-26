@@ -11,7 +11,7 @@ import (
 	"github.com/akamensky/argparse"
 )
 
-var svcs map[string]*fcbreak.ReqService
+var svcs map[string]*fcbreak.ServiceClient
 
 func main() {
 	parser := argparse.NewParser("natbreaker-client", "Reflect connectors info back")
@@ -36,7 +36,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	svcs = make(map[string]*fcbreak.ReqService)
+	svcs = make(map[string]*fcbreak.ServiceClient)
 
 	defer func() {
 		for _, svc := range svcs {
@@ -46,13 +46,14 @@ func main() {
 
 	// Start Client
 	for k, v := range serverCfgs {
-		svc := fcbreak.NewReqService(k, v, &commonCfg)
-		err := svc.Start()
+		svc := fcbreak.NewService(k, v)
+		client := fcbreak.NewServiceClient(svc, &commonCfg)
+		err := client.Start()
 		if err != nil {
 			log.Printf("%v", err)
 			return
 		}
-		svcs[svc.Name] = svc
+		svcs[svc.Name] = client
 	}
 
 	log.Println("Up and running.")

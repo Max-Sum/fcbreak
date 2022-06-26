@@ -2,141 +2,25 @@ package fcbreak
 
 import (
 	"errors"
-	"io"
 	"log"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pires/go-proxyproto"
 )
 
 var (
 	ErrorServiceNotFound = errors.New("Service is not found")
 )
 
-type Service struct {
-	l           net.Listener
-	mutex       sync.RWMutex
-	Name        string `json:"name" binding:"required"`
-	RemoteAddr  string `json:"remote_addr" binding:"required"`
-	ExposedAddr string `json:"exposed_addr,omitifempty"`
-	Scheme      string `json:"scheme" binding:"required"`
-}
-
-func DefaultService() *Service {
-	return &Service{
-		l:           nil,
-		mutex:       sync.RWMutex{},
-		Name:        "",
-		RemoteAddr:  "",
-		ExposedAddr: "",
-		Scheme:      "",
-	}
-}
-
-// Handle an client request
-func (s *Service) Handle(conn net.Conn) error {
-	defer conn.Close()
-	s.mutex.RLock()
-	target, err := net.ResolveTCPAddr("tcp", s.ExposedAddr)
-	if err != nil {
-		return err
-	}
-	s.mutex.RUnlock()
-	rconn, err := net.DialTCP("tcp", nil, target)
-	if err != nil {
-		return err
-	}
-	defer rconn.Close()
-	// Write Proxy Scheme Header
-	header := proxyproto.HeaderProxyFromAddrs(2, rconn.RemoteAddr(), target)
-	_, err = header.WriteTo(rconn)
-	if err != nil {
-		return err
-	}
-	// Proxy TCP Link
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		_, err := io.Copy(conn, rconn)
-		if cw, ok := conn.(CloseWriter); ok {
-			cw.CloseWrite()
-		}
-		rconn.CloseRead()
-		if err != nil && err != io.EOF {
-			log.Printf("copy err %v\n", err)
-		}
-		wg.Done()
-	}()
-	_, err = io.Copy(rconn, conn)
-	if cr, ok := conn.(CloseReader); ok {
-		cr.CloseRead()
-	}
-	rconn.CloseWrite()
-	wg.Wait()
-	if err != nil && err != io.EOF {
-		log.Printf("copy err %v\n", err)
-		return err
-	}
-	return nil
-}
-
-func (s *Service) Listen() error {
-	if s.l != nil {
-		return nil
-	}
-	l, err := net.Listen("tcp", s.RemoteAddr)
-	if err != nil {
-		log.Printf("Listen Error: %v", err)
-		return err
-	}
-	s.l = l
-	log.Printf("Service [%s] Listen: %s://%s\n", s.Name, s.Scheme, s.RemoteAddr)
-	return nil
-}
-
-func (s *Service) Serve() {
-	if s.l == nil {
-		return
-	}
-	for {
-		conn, err := s.l.Accept()
-		if err != nil {
-			log.Println("listener.Accept error:", err)
-			break
-		}
-		go s.Handle(conn)
-	}
-	// Clear running bit
-	if s.l != nil {
-		s.l = nil
-	}
-	return
-}
-func (s *Service) Stop() error {
-	if s.Running() {
-		if err := s.l.Close(); err != nil {
-			return err
-		}
-		s.l = nil
-	}
-	return nil
-}
-
-func (s *Service) Running() bool {
-	return s.l != nil
-}
-
 // ServiceInfo is a service wrapper
-type ServiceInfo struct {
-	*Service
+type TimedService struct {
+	*ServiceReflector
 	updateCh chan (struct{})
 }
 
-func (svc ServiceInfo) Timeout(s *Server) {
+func (svc TimedService) Timeout(s *Server) {
 	for {
 		select {
 		case <-time.After(30 * time.Minute):
@@ -154,47 +38,51 @@ func (svc ServiceInfo) Timeout(s *Server) {
 }
 
 type Server struct {
-	User     string
-	Pass     string
-	mutex    sync.RWMutex
-	services map[string]ServiceInfo
+	User       string
+	Pass       string
+	mutex      sync.RWMutex
+	reflectors map[string]TimedService
 }
 
 func NewServer() *Server {
 	return &Server{
-		User:     "",
-		Pass:     "",
-		mutex:    sync.RWMutex{},
-		services: map[string]ServiceInfo{},
+		User:       "",
+		Pass:       "",
+		mutex:      sync.RWMutex{},
+		reflectors: map[string]TimedService{},
 	}
 }
 
 // not thread-safe!
-func (s *Server) addService(svc *Service) error {
-	if _, found := s.services[svc.Name]; found {
+func (s *Server) addService(svc *ServiceInfo) error {
+	if _, found := s.reflectors[svc.Name]; found {
 		return errors.New("Service [" + svc.Name + "] already exists.")
 	}
-	if err := svc.Listen(); err != nil {
+	r := &ServiceReflector{
+		ServiceInfo: svc,
+		mutex:       sync.RWMutex{},
+	}
+	if err := r.Listen(); err != nil {
 		return err
 	}
-	go svc.Serve()
-	s.services[svc.Name] = ServiceInfo{
-		Service:  svc,
-		updateCh: make(chan struct{}),
+	go r.Serve()
+	s.reflectors[r.Name] = TimedService{
+		ServiceReflector: r,
+		updateCh:         make(chan struct{}),
 	}
 
-	go s.services[svc.Name].Timeout(s)
+	go s.reflectors[svc.Name].Timeout(s)
 	return nil
 }
 
 // not thread-safe!
-func (s *Server) updateService(name string, svc *Service) error {
-	if oldSvc, found := s.services[name]; found {
+func (s *Server) updateService(name string, svc *ServiceInfo) error {
+	if oldSvc, found := s.reflectors[name]; found {
 		if name != svc.Name {
 			log.Printf("Rename Service: [%s] -> [%s]", name, svc.Name)
 			oldSvc.Name = svc.Name
-			delete(s.services, name)
-			s.services[svc.Name] = oldSvc
+			delete(s.reflectors, name)
+			s.reflectors[svc.Name] = oldSvc
 		}
 		// Need to restart
 		if oldSvc.ExposedAddr != svc.ExposedAddr || oldSvc.RemoteAddr != svc.RemoteAddr || oldSvc.Scheme != svc.Scheme {
@@ -213,22 +101,22 @@ func (s *Server) updateService(name string, svc *Service) error {
 
 // not thread-safe!
 func (s *Server) delService(name string) error {
-	if svc, found := s.services[name]; found {
+	if svc, found := s.reflectors[name]; found {
 		svc.Stop()
 		svc.updateCh <- struct{}{} // Stop timer
-		delete(s.services, name)
+		delete(s.reflectors, name)
 		return nil
 	}
 	return ErrorServiceNotFound
 }
 
-func (s *Server) AddService(svc *Service) error {
+func (s *Server) AddService(svc *ServiceInfo) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.addService(svc)
 }
 
-func (s *Server) UpdateService(name string, svc *Service) error {
+func (s *Server) UpdateService(name string, svc *ServiceInfo) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.updateService(name, svc)
@@ -243,15 +131,19 @@ func (s *Server) DelService(name string) error {
 func (s *Server) GetServices(c *gin.Context) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	c.IndentedJSON(http.StatusOK, s.services)
+	svcs := make(map[string]*ServiceInfo)
+	for n, r := range s.reflectors {
+		svcs[n] = r.ServiceInfo
+	}
+	c.IndentedJSON(http.StatusOK, svcs)
 }
 
 func (s *Server) GetServiceByName(c *gin.Context) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	name := c.Param("name")
-	if service, ok := s.services[name]; ok {
-		c.IndentedJSON(http.StatusOK, service)
+	if r, ok := s.reflectors[name]; ok {
+		c.IndentedJSON(http.StatusOK, r.ServiceInfo)
 		return
 	}
 
@@ -259,7 +151,7 @@ func (s *Server) GetServiceByName(c *gin.Context) {
 }
 
 func (s *Server) PostService(c *gin.Context) {
-	svc := DefaultService()
+	svc := &ServiceInfo{}
 	if err := c.BindJSON(&svc); err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
@@ -277,7 +169,7 @@ func (s *Server) PostService(c *gin.Context) {
 
 func (s *Server) PutService(c *gin.Context) {
 	name := c.Param("name")
-	svc := DefaultService()
+	svc := &ServiceInfo{}
 	if err := c.BindJSON(&svc); err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
@@ -297,6 +189,19 @@ func (s *Server) PutService(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusOK, svc)
+}
+
+func (s *Server) PutServiceProxyAddr(c *gin.Context) {
+	name := c.Param("name")
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if r, ok := s.reflectors[name]; ok {
+		r.ProxyAddr = c.Request.RemoteAddr
+		c.IndentedJSON(http.StatusOK, r.ServiceInfo)
+		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, r.Scheme, r.RemoteAddr, r.Scheme, r.ExposedAddr)
+		return
+	}
+	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 }
 
 func (s *Server) DeleteService(c *gin.Context) {
@@ -328,6 +233,7 @@ func (s *Server) ListenAndServe(addr string) {
 	r.GET("/services/:name", s.GetServiceByName)
 	r.POST("/services", s.PostService)
 	r.PUT("/services/:name", s.PutService)
+	r.PUT("/services/:name/proxy_addr", s.PutServiceProxyAddr)
 	r.DELETE("/services/:name", s.DeleteService)
 
 	serv.ListenAndServe()

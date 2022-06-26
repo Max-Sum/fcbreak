@@ -13,7 +13,7 @@ import (
 )
 
 type HTTPProxy struct {
-	s *ReqService
+	s *Service
 }
 
 func (hp *HTTPProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -47,11 +47,23 @@ func (hp *HTTPProxy) InfoHandler(rw http.ResponseWriter, req *http.Request) {
   - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: false}`
 	quanxTemp := `http=%[3]s:%[4]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=true, fast-open=false, udp-relay=false, tag=%[1]s
 http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=true, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
-	name := hp.s.cfg.Name
-	scheme := hp.s.cfg.Scheme
+	name := hp.s.Cfg.Name
+	scheme := hp.s.Cfg.Scheme
 	eip, eportStr, err := net.SplitHostPort(hp.s.ExposedAddr)
+	if err != nil {
+		http.Error(rw, err.Error(), 500)
+		return
+	}
 	eport, err := strconv.Atoi(eportStr)
+	if err != nil {
+		http.Error(rw, err.Error(), 500)
+		return
+	}
 	rip, rportStr, err := net.SplitHostPort(req.Host)
+	if err != nil {
+		http.Error(rw, err.Error(), 500)
+		return
+	}
 	rport, err := strconv.Atoi(rportStr)
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
@@ -63,8 +75,8 @@ http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s
 		return
 	}
 	tls := scheme == "https"
-	user := hp.s.cfg.Username
-	pass := hp.s.cfg.Password
+	user := hp.s.Cfg.Username
+	pass := hp.s.Cfg.Password
 	switch req.URL.Path {
 	case "/clash":
 		fmt.Fprintf(rw, clashTemp, name, host, eip, eport, rip, rport, tls, user, pass)
@@ -148,7 +160,7 @@ func (hp *HTTPProxy) ConnectHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (hp *HTTPProxy) Auth(req *http.Request, header string) bool {
-	if hp.s.cfg.Username == "" && hp.s.cfg.Password == "" {
+	if hp.s.Cfg.Username == "" && hp.s.Cfg.Password == "" {
 		return true
 	}
 	u, p, ok := basicAuth(req, header)
@@ -156,7 +168,7 @@ func (hp *HTTPProxy) Auth(req *http.Request, header string) bool {
 		log.Printf("Authenication Failed: Failed to get auth info.\n")
 		return false
 	}
-	if u != hp.s.cfg.Username || p != hp.s.cfg.Password {
+	if u != hp.s.Cfg.Username || p != hp.s.Cfg.Password {
 		log.Printf("Authenication Failed: %s:%s not matched.\n", u, p)
 		return false
 	}
@@ -208,19 +220,4 @@ func removeProxyHeaders(req *http.Request) {
 	req.Header.Del("Trailers")
 	req.Header.Del("Transfer-Encoding")
 	req.Header.Del("Upgrade")
-}
-
-func getBadResponse() *http.Response {
-	header := make(map[string][]string)
-	header["Proxy-Authenticate"] = []string{"Basic"}
-	header["Connection"] = []string{"close"}
-	res := &http.Response{
-		Status:     "407 Not authorized",
-		StatusCode: 407,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     header,
-	}
-	return res
 }
