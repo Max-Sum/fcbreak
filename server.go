@@ -24,9 +24,10 @@ func (svc TimedService) Timeout(s *Server) {
 	for {
 		select {
 		case <-time.After(30 * time.Minute):
-			log.Printf("Service [%s] Timeout\n", svc.Name)
-			if err := s.DelService(svc.Name); err != nil {
-				log.Printf("Service [%s] Stop Error: %v\n", svc.Name, err)
+			info := svc.GetServiceInfo()
+			log.Printf("Service [%s] Timeout\n", info.Name)
+			if err := s.DelService(info.Name); err != nil {
+				log.Printf("Service [%s] Stop Error: %v\n", info.Name, err)
 			}
 		case <-svc.updateCh:
 			// Check if the service is ended.
@@ -54,49 +55,48 @@ func NewServer() *Server {
 }
 
 // not thread-safe!
-func (s *Server) addService(svc *ServiceInfo) error {
-	if _, found := s.reflectors[svc.Name]; found {
-		return errors.New("Service [" + svc.Name + "] already exists.")
+func (s *Server) addService(svc *ServiceInfo) (*ServiceInfo, error) {
+	if r, found := s.reflectors[svc.Name]; found {
+		info := r.GetServiceInfo()
+		return &info, errors.New("Service [" + svc.Name + "] already exists.")
 	}
-	r := &ServiceReflector{
-		ServiceInfo: svc,
-		mutex:       sync.RWMutex{},
-	}
+	r := NewServiceReflector(svc)
 	if err := r.Listen(); err != nil {
-		return err
+		return nil, err
 	}
 	go r.Serve()
-	s.reflectors[r.Name] = TimedService{
+	s.reflectors[svc.Name] = TimedService{
 		ServiceReflector: r,
 		updateCh:         make(chan struct{}),
 	}
 
 	go s.reflectors[svc.Name].Timeout(s)
-	return nil
+	return svc, nil
 }
 
 // not thread-safe!
-func (s *Server) updateService(name string, svc *ServiceInfo) error {
+func (s *Server) updateService(name string, svc *ServiceInfo) (*ServiceInfo, error) {
 	if oldSvc, found := s.reflectors[name]; found {
 		if name != svc.Name {
 			log.Printf("Rename Service: [%s] -> [%s]", name, svc.Name)
-			oldSvc.Name = svc.Name
+			oldSvc.Rename(name)
 			delete(s.reflectors, name)
 			s.reflectors[svc.Name] = oldSvc
 		}
+		oldInfo := oldSvc.GetServiceInfo()
 		// Need to restart
-		if oldSvc.ExposedAddr != svc.ExposedAddr || oldSvc.RemoteAddr != svc.RemoteAddr || oldSvc.Scheme != svc.Scheme {
+		if oldInfo.RemoteAddr != svc.RemoteAddr || oldInfo.Scheme != svc.Scheme {
 			log.Printf("Update Service: [%s] -> [%s]", name, svc.Name)
-			if err := s.delService(oldSvc.Name); err != nil {
-				return err
+			if err := s.delService(oldInfo.Name); err != nil {
+				return nil, err
 			}
 			return s.addService(svc)
 		}
 		// Reset timer
 		oldSvc.updateCh <- struct{}{}
-		return nil
+		return &oldInfo, nil
 	}
-	return ErrorServiceNotFound
+	return nil, ErrorServiceNotFound
 }
 
 // not thread-safe!
@@ -110,13 +110,13 @@ func (s *Server) delService(name string) error {
 	return ErrorServiceNotFound
 }
 
-func (s *Server) AddService(svc *ServiceInfo) error {
+func (s *Server) AddService(svc *ServiceInfo) (*ServiceInfo, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.addService(svc)
 }
 
-func (s *Server) UpdateService(name string, svc *ServiceInfo) error {
+func (s *Server) UpdateService(name string, svc *ServiceInfo) (*ServiceInfo, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.updateService(name, svc)
@@ -129,25 +129,25 @@ func (s *Server) DelService(name string) error {
 }
 
 func (s *Server) GetServices(c *gin.Context) {
+	svcs := make(map[string]ServiceInfo)
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	svcs := make(map[string]*ServiceInfo)
 	for n, r := range s.reflectors {
-		svcs[n] = r.ServiceInfo
+		svcs[n] = r.GetServiceInfo()
 	}
+	s.mutex.RUnlock()
 	c.IndentedJSON(http.StatusOK, svcs)
 }
 
 func (s *Server) GetServiceByName(c *gin.Context) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
 	name := c.Param("name")
-	if r, ok := s.reflectors[name]; ok {
-		c.IndentedJSON(http.StatusOK, r.ServiceInfo)
+	s.mutex.RLock()
+	r, ok := s.reflectors[name]
+	s.mutex.RUnlock()
+	if !ok {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 		return
 	}
-
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
+	c.IndentedJSON(http.StatusOK, r.GetServiceInfo())
 }
 
 func (s *Server) PostService(c *gin.Context) {
@@ -158,13 +158,14 @@ func (s *Server) PostService(c *gin.Context) {
 	}
 	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Register Service [%s]: %s://%s -> %s://%s", svc.Name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
-	if err := s.AddService(svc); err != nil {
+	info, err := s.AddService(svc)
+	if err != nil {
 		log.Printf("Register Service [%s] Error: %v", svc.Name, err)
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, svc)
+	c.IndentedJSON(http.StatusOK, info)
 }
 
 func (s *Server) PutService(c *gin.Context) {
@@ -177,31 +178,54 @@ func (s *Server) PutService(c *gin.Context) {
 	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	err := s.updateService(name, svc)
+	info, err := s.updateService(name, svc)
 	if err == ErrorServiceNotFound {
-		err = s.addService(svc)
+		info, err = s.addService(svc)
 	}
+	s.mutex.Unlock()
 	if err != nil {
 		log.Printf("Update Service [%s] Error: %v", svc.Name, err)
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, svc)
+	c.IndentedJSON(http.StatusOK, info)
+}
+
+func (s *Server) PutServiceExposedAddr(c *gin.Context) {
+	name := c.Param("name")
+	s.mutex.RLock()
+	r, ok := s.reflectors[name]
+	s.mutex.RUnlock()
+	if !ok {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
+		return
+	}
+	info := r.GetServiceInfo()
+	if info.ExposedAddr != c.Request.RemoteAddr {
+		r.UpdateAddr(&c.Request.RemoteAddr, nil)
+		info.ExposedAddr = c.Request.RemoteAddr
+		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
+	}
+	c.IndentedJSON(http.StatusOK, info)
 }
 
 func (s *Server) PutServiceProxyAddr(c *gin.Context) {
 	name := c.Param("name")
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if r, ok := s.reflectors[name]; ok {
-		r.ProxyAddr = c.Request.RemoteAddr
-		c.IndentedJSON(http.StatusOK, r.ServiceInfo)
-		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, r.Scheme, r.RemoteAddr, r.Scheme, r.ExposedAddr)
+	s.mutex.RLock()
+	r, ok := s.reflectors[name]
+	s.mutex.RUnlock()
+	if !ok {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 		return
 	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
+	info := r.GetServiceInfo()
+	if info.ProxyAddr != c.Request.RemoteAddr {
+		info.ProxyAddr = c.Request.RemoteAddr
+		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
+		r.UpdateAddr(nil, &c.Request.RemoteAddr)
+	}
+	c.IndentedJSON(http.StatusOK, info)
 }
 
 func (s *Server) DeleteService(c *gin.Context) {
@@ -233,6 +257,7 @@ func (s *Server) ListenAndServe(addr string) {
 	r.GET("/services/:name", s.GetServiceByName)
 	r.POST("/services", s.PostService)
 	r.PUT("/services/:name", s.PutService)
+	r.PUT("/services/:name/addr", s.PutServiceExposedAddr)
 	r.PUT("/services/:name/proxy_addr", s.PutServiceProxyAddr)
 	r.DELETE("/services/:name", s.DeleteService)
 

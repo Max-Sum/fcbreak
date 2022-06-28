@@ -19,16 +19,16 @@ type ServiceInfo struct {
 
 // ServiceReflector is the implementation on Server-side.
 type ServiceReflector struct {
-	*ServiceInfo
+	info  ServiceInfo
 	l     net.Listener
 	mutex sync.RWMutex
 }
 
-func DefaultServiceReflector() *ServiceReflector {
+func NewServiceReflector(info *ServiceInfo) *ServiceReflector {
 	return &ServiceReflector{
-		ServiceInfo: &ServiceInfo{},
-		l:           nil,
-		mutex:       sync.RWMutex{},
+		info:  *info,
+		l:     nil,
+		mutex: sync.RWMutex{},
 	}
 }
 
@@ -36,10 +36,10 @@ func DefaultServiceReflector() *ServiceReflector {
 func (r *ServiceReflector) Handle(conn net.Conn) error {
 	defer conn.Close()
 	r.mutex.RLock()
-	addr := r.ExposedAddr
-	useProxyProto := r.ProxyAddr != ""
+	addr := r.info.ExposedAddr
+	useProxyProto := r.info.ProxyAddr != ""
 	if useProxyProto {
-		addr = r.ProxyAddr
+		addr = r.info.ProxyAddr
 	}
 	r.mutex.RUnlock()
 	target, err := net.ResolveTCPAddr("tcp", addr)
@@ -87,38 +87,42 @@ func (r *ServiceReflector) Handle(conn net.Conn) error {
 }
 
 func (r *ServiceReflector) Listen() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	if r.l != nil {
 		return nil
 	}
-	l, err := net.Listen("tcp", r.RemoteAddr)
+	l, err := net.Listen("tcp", r.info.RemoteAddr)
 	if err != nil {
 		log.Printf("Listen Error: %v", err)
 		return err
 	}
 	r.l = l
-	log.Printf("Service [%s] Listen: %s://%s\n", r.Name, r.Scheme, r.RemoteAddr)
+	log.Printf("Service [%s] Listen: %s://%s\n", r.info.Name, r.info.Scheme, r.info.RemoteAddr)
 	return nil
 }
 
 func (r *ServiceReflector) Serve() {
-	if r.l == nil {
+	r.mutex.RLock()
+	l := r.l
+	r.mutex.RUnlock()
+	if l == nil {
 		return
 	}
 	for {
-		conn, err := r.l.Accept()
+		conn, err := l.Accept()
 		if err != nil {
 			log.Println("listener.Accept error:", err)
 			break
 		}
 		go r.Handle(conn)
 	}
-	// Clear running bit
-	if r.l != nil {
-		r.l = nil
-	}
 }
+
 func (r *ServiceReflector) Stop() error {
-	if r.Running() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.l != nil {
 		if err := r.l.Close(); err != nil {
 			return err
 		}
@@ -128,5 +132,31 @@ func (r *ServiceReflector) Stop() error {
 }
 
 func (r *ServiceReflector) Running() bool {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
 	return r.l != nil
+}
+
+func (r *ServiceReflector) Rename(name string) ServiceInfo {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.info.Name = name
+	return r.info
+}
+
+func (r *ServiceReflector) GetServiceInfo() ServiceInfo {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	return r.info
+}
+
+func (r *ServiceReflector) UpdateAddr(exposedAddr *string, proxyAddr *string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if exposedAddr != nil {
+		r.info.ExposedAddr = *exposedAddr
+	}
+	if proxyAddr != nil {
+		r.info.ProxyAddr = *proxyAddr
+	}
 }

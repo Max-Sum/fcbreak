@@ -104,6 +104,28 @@ func (c *ServiceClient) refresh() error {
 	return json.Unmarshal(by, &c.svc.ServiceInfo)
 }
 
+func (c *ServiceClient) refreshAddr() error {
+	// Update Service's exposed address
+	addr := fmt.Sprintf("%s/services/%s/addr", c.cfg.Server, c.svc.Name)
+	req, err := http.NewRequest("PUT", addr, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.pClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("Refresh [" + c.svc.Name + "]'s address error: " + string(by))
+	}
+	return json.Unmarshal(by, &c.svc.ServiceInfo)
+}
+
 func (c *ServiceClient) refreshProxyAddr() error {
 	// Update Service's Proxy protocol address
 	addr := fmt.Sprintf("%s/services/%s/proxy_addr", c.cfg.Server, c.svc.Name)
