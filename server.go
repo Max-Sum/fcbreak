@@ -29,6 +29,7 @@ func (svc TimedService) Timeout(s *Server) {
 			if err := s.DelService(info.Name); err != nil {
 				log.Printf("Service [%s] Stop Error: %v\n", info.Name, err)
 			}
+			return
 		case <-svc.updateCh:
 			// Check if the service is ended.
 			if !svc.Running() {
@@ -86,11 +87,16 @@ func (s *Server) updateService(name string, svc *ServiceInfo) (*ServiceInfo, err
 		oldInfo := oldSvc.GetServiceInfo()
 		// Need to restart
 		if oldInfo.RemoteAddr != svc.RemoteAddr || oldInfo.Scheme != svc.Scheme {
-			log.Printf("Update Service: [%s] -> [%s]", name, svc.Name)
+			log.Printf("Update Service: [%s]", svc.Name)
 			if err := s.delService(oldInfo.Name); err != nil {
 				return nil, err
 			}
 			return s.addService(svc)
+		}
+		// Update Address
+		if oldInfo.ExposedAddr != svc.ExposedAddr || oldInfo.ProxyAddr != svc.ProxyAddr {
+			log.Printf("Update Service Address: [%s]", svc.Name)
+			oldSvc.UpdateAddr(&svc.ExposedAddr, &svc.ProxyAddr)
 		}
 		// Reset timer
 		oldSvc.updateCh <- struct{}{}
@@ -103,7 +109,6 @@ func (s *Server) updateService(name string, svc *ServiceInfo) (*ServiceInfo, err
 func (s *Server) delService(name string) error {
 	if svc, found := s.reflectors[name]; found {
 		svc.Stop()
-		svc.updateCh <- struct{}{} // Stop timer
 		delete(s.reflectors, name)
 		return nil
 	}
