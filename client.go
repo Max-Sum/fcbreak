@@ -190,15 +190,22 @@ func (c *ServiceClient) DialProxyAddr(network string, addr string) (net.Conn, er
 	return reuse.Dial("tcp", c.listener.pListener.Addr().String(), addr)
 }
 
-func (c *ServiceClient) Start() error {
+func (c *ServiceClient) Start(force bool) error {
 	l, err := c.svc.Listen()
 	if err != nil {
 		return err
 	}
 	c.listener = l.(*svcInitMuxListener)
 	if err := c.register(); err != nil {
-		l.Close()
-		return err
+		if ! force {
+			l.Close()
+			return err
+		}
+		for err != nil {
+			time.Sleep(time.Second)
+			c.delete()
+			err = c.register()
+		}
 	}
 	if c.svc.Scheme == "http" || c.svc.Scheme == "https" {
 		c.refreshProxyAddr()
