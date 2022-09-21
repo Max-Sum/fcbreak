@@ -32,4 +32,4 @@ COPY --from=builder \
      /go/src/github.com/Max-Sum/fcbreak/client /client
 
 ENTRYPOINT [ "/client" ]
-CMD ["-c", "config.ini"]
+CMD ["-c", "config.ini", "-f"]

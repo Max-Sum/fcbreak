@@ -17,6 +17,8 @@ func main() {
 	parser := argparse.NewParser("natbreaker-client", "Reflect connectors info back")
 	// Create string flag
 	cfgpath := parser.String("c", "Config", &argparse.Options{Required: true, Help: "Config File"})
+	// force register flag
+	force := parser.Flag("f", "Force", &argparse.Options{Help: "Force Register, overwrites existing service"})
 	// Parse input
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -48,7 +50,7 @@ func main() {
 	for k, v := range serverCfgs {
 		svc := fcbreak.NewService(k, v)
 		client := fcbreak.NewServiceClient(svc, &commonCfg)
-		err := client.Start()
+		err := client.Start(*force)
 		if err != nil {
 			log.Printf("%v", err)
 			return
