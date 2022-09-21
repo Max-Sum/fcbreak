@@ -1,4 +1,4 @@
-FROM golang:1.18-alpine AS builder
+FROM golang:1.19-alpine AS builder
 
 WORKDIR /go/src/github.com/Max-Sum/fcbreak
 
@@ -20,6 +20,7 @@ FROM scratch as server
 WORKDIR /
 COPY --from=builder \
      /go/src/github.com/Max-Sum/fcbreak/server /server
+EXPOSE 8707
 ENTRYPOINT [ "/server" ]
 CMD ["-l", ":8707"]
 
