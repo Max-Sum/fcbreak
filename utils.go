@@ -2,6 +2,7 @@ package fcbreak
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"strconv"
@@ -22,6 +23,14 @@ func SaveConnInContext(ctx context.Context, c net.Conn) context.Context {
 
 func GetConn(r *http.Request) net.Conn {
 	return r.Context().Value(ConnContextKey).(net.Conn)
+}
+
+func GetConnUnwarpTLS(r *http.Request) net.Conn {
+	conn := GetConn(r)
+	if tc, ok := conn.(*tls.Conn); ok {
+		return tc.NetConn()
+	}
+	return conn
 }
 
 type CloseWriter interface {

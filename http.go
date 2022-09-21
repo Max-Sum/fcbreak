@@ -2,6 +2,7 @@ package fcbreak
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -52,10 +53,15 @@ func (s *HTTPService) Serve(l net.Listener) (err error) {
 // HTTP Reverse Proxy Handler
 func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.auth(r, w)
-	conn, ok := GetConn(r).(SvcInitConn)
+	conn, ok := GetConnUnwarpTLS(r).(SvcInitConn)
+	if !ok {
+		log.Println("Conn is not SvcInitConn.")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	// Proxied from Server
 	useAltSvc := s.Cfg.AltSvc && SupportAltSvc(r.UserAgent())
-	if ok && conn.IsReflected && !useAltSvc {
+	if conn.IsReflected && !useAltSvc {
 		u := r.URL
 		if r.TLS == nil {
 			u.Scheme = "http"
@@ -121,7 +127,12 @@ func (s *HTTPService) exposedAddr() (string, error) {
 }
 
 func (s *HTTPService) ModifyResponse(r *http.Response) error {
-	if !s.Cfg.AltSvc || !SupportAltSvc(r.Request.UserAgent()) {
+	conn, ok := GetConnUnwarpTLS(r.Request).(SvcInitConn)
+	if !ok {
+		return errors.New("conn is not SvcInitConn")
+	}
+	useAltSvc := s.Cfg.AltSvc && SupportAltSvc(r.Request.UserAgent())
+	if !conn.IsReflected || !useAltSvc {
 		return nil
 	}
 	addr, err := s.exposedAddr()

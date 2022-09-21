@@ -102,7 +102,10 @@ func (l *svcInitMuxListener) Start() {
 // Accept on both Listener.
 func (l *svcInitMuxListener) Accept() (net.Conn, error) {
 	if ret, ok := <-l.connCh; ok {
-		return ret.Conn, ret.Err
+		if ret.Conn != nil && ret.Conn.Conn != nil {
+			return *ret.Conn, ret.Err
+		}
+		return nil, ret.Err
 	}
 	return nil, io.EOF
 }
