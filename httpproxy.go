@@ -37,7 +37,7 @@ func NewHTTPProxy(s *Service) *HTTPProxy {
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
-		p.tp.Proxy = http.ProxyURL(httpProxyURI)
+		p.tp.Dial = p.dialer.Dial
 	}
 	return p
 }
