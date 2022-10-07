@@ -40,7 +40,7 @@ func (s *HTTPService) Serve(l net.Listener) (err error) {
 
 	// HTTP Proxy protocol
 	if s.Cfg.Backend == "proxy" {
-		s.proxy = &HTTPProxy{s: s.Service}
+		s.proxy = NewHTTPProxy(s.Service)
 		s.serv.Handler = s.proxy
 	}
 
