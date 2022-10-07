@@ -7,13 +7,39 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/net/proxy"
 )
 
 type HTTPProxy struct {
-	s *Service
+	s      *Service
+	tp     http.Transport
+	dialer proxy.Dialer
+}
+
+func NewHTTPProxy(s *Service) *HTTPProxy {
+	p := &HTTPProxy{
+		s:      s,
+		tp:     http.Transport{},
+		dialer: proxy.Direct,
+	}
+	// proxy
+	if s.Cfg.ChainProxy != "" {
+		httpProxyURI, err := url.Parse(s.Cfg.ChainProxy)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		p.dialer, err = proxy.FromURL(httpProxyURI, proxy.Direct)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		p.tp.Proxy = http.ProxyURL(httpProxyURI)
+	}
+	return p
 }
 
 func (hp *HTTPProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -93,7 +119,7 @@ http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s
 func (hp *HTTPProxy) HTTPHandler(rw http.ResponseWriter, req *http.Request) {
 	removeProxyHeaders(req)
 
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := hp.tp.RoundTrip(req)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -113,7 +139,7 @@ func (hp *HTTPProxy) HTTPHandler(rw http.ResponseWriter, req *http.Request) {
 // Hijack needs to SetReadDeadline on the Conn of the request, but if we use stream compression here,
 // we may always get i/o timeout error.
 func (hp *HTTPProxy) ConnectHandler(rw http.ResponseWriter, req *http.Request) {
-	remote, err := net.Dial("tcp", req.URL.Host)
+	remote, err := hp.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
 		http.Error(rw, "Failed", http.StatusBadRequest)
 		return

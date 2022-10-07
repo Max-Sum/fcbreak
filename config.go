@@ -41,6 +41,7 @@ type HTTPServiceConf struct {
 	AltSvc        bool   `ini:"http_altsvc"`
 	NIPDomain     string `ini:"http_nip_domain"`
 	Backend       string `ini:"http_backend"`
+	ChainProxy    string `ini:"http_proxy_chain"`
 	TLSCert       string `ini:"https_crt"`
 	TLSKey        string `ini:"https_key"`
 	ProxyInsecure bool   `ini:"https_proxy_skip_cert_verification"`
@@ -59,6 +60,7 @@ func GetDefaultServiceConf() ServiceConf {
 			Username:      "",
 			Password:      "",
 			CacheTime:     300,
+			ChainProxy:    "",
 			Backend:       "http",
 			TLSCert:       "",
 			TLSKey:        "",

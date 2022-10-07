@@ -11,6 +11,7 @@ Additionally, any NAT box between your computer and internet need to be fullcone
 ## Usage
 
 Server:
+
 ```
 ./server
     -l [<listen ip>]:<port>   API exposing host, the API will listen as http
@@ -19,11 +20,13 @@ Server:
 ```
 
 Client:
+
 ```
 ./client -c <path to config file>
 ```
 
 Client Config File:
+
 ```
 [common]
 server = http://<user>:<pass>@<server host>:<server port> # Server API address
@@ -57,6 +60,7 @@ remote_port = 5002     # Listening Port
 http_username=proxy    # [Optional] HTTP Basic Auth Username
 http_password=password # [Optional] HTTP Basic Auth Password
 http_backend=proxy
+http_proxy_chain=http://localhost:3128 # [Optional] Chain Proxy, http or socks.
 
 [ssh]
 type = tcp
@@ -66,6 +70,7 @@ remote_port = 2200
 ```
 
 Connector:
+
 ```
 sudo ./connector
     -s http[s]://[<user>:<pass>@]<server host>:<server port> # Server API
