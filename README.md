@@ -15,9 +15,10 @@ Server:
 ```
 ./server
     -l [<listen ip>]:<port>   API exposing host, the API will listen as http
-    -s [<listen ip>]:<port>  API exposing host, will listen as https
+    -s [<listen ip>]:<port>   API exposing host, will listen as https
     [--cert <cert file>]      HTTPS certificate file, must be defined when -s is presented
     [--key <key file>]        HTTPS certificate file, must be defined when -s is presented
+    [--proxy-protocol]        Listen using Proxy Protocol
     [-u <username>]           Set username to secure the API, optional
     [-p <password>]           Set password to secure the API, optional
 ```

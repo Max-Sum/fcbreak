@@ -21,6 +21,7 @@ func main() {
 	tlsaddr := parser.String("s", "listen-https", &argparse.Options{Help: "HTTPS Listening Address"})
 	tlscert := parser.String("", "cert", &argparse.Options{Help: "HTTPS Certificate File"})
 	tlskey := parser.String("", "key", &argparse.Options{Help: "HTTPS Private Key File"})
+	proxyproto := parser.Flag("", "proxy-protocol", &argparse.Options{Help: "Listen with proxy protocol"})
 	user := parser.String("u", "user", &argparse.Options{Help: "Authentication Username"})
 	pass := parser.String("p", "pass", &argparse.Options{Help: "Authentication Password"})
 	// Parse input
@@ -44,9 +45,10 @@ func main() {
 		fmt.Print(parser.Usage(errors.New("listen address is missing")))
 		os.Exit(1)
 	}
+	useProxyProto := proxyproto != nil && *proxyproto
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func(){
+	go func() {
 		<-c
 		// graceful exit
 		s.Shutdown()
@@ -57,7 +59,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := s.ListenAndServe(*addr, nil)
+			err := s.ListenAndServe(*addr, nil, useProxyProto)
 			if err != nil {
 				fmt.Print(err)
 			}
@@ -73,13 +75,13 @@ func main() {
 			fmt.Print(parser.Usage(err))
 			os.Exit(1)
 		}
-		tlsconf := &tls.Config {
+		tlsconf := &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := s.ListenAndServe(*tlsaddr, tlsconf)
+			err := s.ListenAndServe(*tlsaddr, tlsconf, useProxyProto)
 			if err != nil {
 				fmt.Print(err)
 			}

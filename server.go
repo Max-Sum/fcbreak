@@ -11,11 +11,13 @@ import (
 	"net"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	dissector "github.com/go-gost/tls-dissector"
+	proxyproto "github.com/pires/go-proxyproto"
 )
 
 var (
@@ -218,13 +220,25 @@ func (s *Server) GetServiceByName(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, r.GetServiceInfoForOutput())
 }
 
+func getRealAddr(req *http.Request) string {
+	addr := req.RemoteAddr
+	_, port, _ := net.SplitHostPort(addr)
+	if fwaddr := req.Header.Get("X-Real-IP"); fwaddr != "" {
+		return net.JoinHostPort(fwaddr, port)
+	}
+	if fwaddr := req.Header.Get("X-Forwarded-For"); fwaddr != "" {
+		return net.JoinHostPort(strings.Split(fwaddr, ", ")[0], port)
+	}
+	return addr
+}
+
 func (s *Server) PostService(c *gin.Context) {
 	svc := &ServiceInfo{}
 	if err := c.BindJSON(&svc); err != nil {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	svc.ExposedAddr = c.Request.RemoteAddr
+	svc.ExposedAddr = getRealAddr(c.Request)
 	log.Printf("Register Service [%s]: %s://%s -> %s://%s", svc.Name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	info, err := s.AddService(svc)
 	if err != nil {
@@ -243,7 +257,7 @@ func (s *Server) PutService(c *gin.Context) {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	svc.ExposedAddr = c.Request.RemoteAddr
+	svc.ExposedAddr = getRealAddr(c.Request)
 	log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	s.mutex.Lock()
 	info, err := s.updateService(name, svc)
@@ -270,9 +284,10 @@ func (s *Server) PutServiceExposedAddr(c *gin.Context) {
 		return
 	}
 	info := r.GetServiceInfo()
-	if info.ExposedAddr != c.Request.RemoteAddr {
-		r.UpdateAddr(&c.Request.RemoteAddr, nil)
-		info.ExposedAddr = c.Request.RemoteAddr
+	remoteAddr := getRealAddr(c.Request)
+	if info.ExposedAddr != remoteAddr {
+		r.UpdateAddr(&remoteAddr, nil)
+		info.ExposedAddr = remoteAddr
 		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
 	}
 	c.IndentedJSON(http.StatusOK, info)
@@ -288,10 +303,11 @@ func (s *Server) PutServiceProxyAddr(c *gin.Context) {
 		return
 	}
 	info := r.GetServiceInfo()
-	if info.ProxyAddr != c.Request.RemoteAddr {
-		info.ProxyAddr = c.Request.RemoteAddr
+	remoteAddr := getRealAddr(c.Request)
+	if info.ProxyAddr != remoteAddr {
+		info.ProxyAddr = remoteAddr
 		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
-		r.UpdateAddr(nil, &c.Request.RemoteAddr)
+		r.UpdateAddr(nil, &remoteAddr)
 	}
 	c.IndentedJSON(http.StatusOK, info)
 }
@@ -371,7 +387,7 @@ func (s *Server) handle(conn net.Conn, fl *forwardListener, isTLS bool) {
 	}
 }
 
-func (s *Server) ListenAndServe(addr string, tls *tls.Config) error {
+func (s *Server) ListenAndServe(addr string, tls *tls.Config, useProxyProto bool) error {
 	select {
 	case _, ok := <-s.shutdown:
 		if !ok {
@@ -405,6 +421,9 @@ func (s *Server) ListenAndServe(addr string, tls *tls.Config) error {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if useProxyProto {
+		l = &proxyproto.Listener{Listener: l}
 	}
 	fl := newForwardListener(l.Addr())
 
