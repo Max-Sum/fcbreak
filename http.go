@@ -68,7 +68,8 @@ func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			u.Scheme = "https"
 		}
-		u.Host, _ = s.exposedAddr()
+		host, port, _ := s.ExposedDomainPort()
+		u.Host = net.JoinHostPort(host, port)
 		// Redirect with Cache Control
 		h := w.Header()
 		_, hadCT := h["Content-Type"]
@@ -114,17 +115,17 @@ func (s *HTTPService) auth(r *http.Request, w http.ResponseWriter) {
 	}
 }
 
-func (s *HTTPService) exposedAddr() (string, error) {
+func (s *HTTPService) ExposedDomainPort() (string, string, error) {
 	host, port, err := net.SplitHostPort(s.ExposedAddr)
 	if err != nil {
-		return s.ExposedAddr, err
+		return "", "", err
 	}
 	if len(s.Cfg.NIPDomain) > 0 {
 		host = strings.ReplaceAll(host, ".", "-") + "." + s.Cfg.NIPDomain
 	} else if len(s.Cfg.DDNSDomain) >0 {
 		host = s.Cfg.DDNSDomain
 	}
-	return net.JoinHostPort(host, port), nil
+	return host, port, nil
 }
 
 func (s *HTTPService) ModifyResponse(r *http.Response) error {
@@ -136,10 +137,11 @@ func (s *HTTPService) ModifyResponse(r *http.Response) error {
 	if !conn.IsReflected || !useAltSvc {
 		return nil
 	}
-	addr, err := s.exposedAddr()
+	host, port, err := s.ExposedDomainPort()
 	if err != nil {
 		return err
 	}
+	addr := net.JoinHostPort(host, port)
 	if u, ok := r.Request.Header["Alt-Used"]; ok && u[0] == addr {
 		return nil
 	}
