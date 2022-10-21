@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 
 	reuse "github.com/libp2p/go-reuseport"
@@ -23,13 +24,23 @@ func NewService(name string, cfg ServiceConf) *Service {
 	s := &Service{
 		ServiceInfo: ServiceInfo{
 			Name:       name,
-			RemoteAddr: fmt.Sprintf("%s:%d", cfg.RemoteAddr, cfg.RemotePort),
-			Scheme:     cfg.Scheme,
+			Scheme:     strings.ToLower(cfg.Scheme),
 		},
 		Cfg:      cfg,
 		l:        nil,
 		httpServ: nil,
 		quitting: make(chan struct{}, 1),
+	}
+	if cfg.RemotePort > 0 {
+		s.RemoteAddr = fmt.Sprintf("%s:%d", cfg.RemoteAddr, cfg.RemotePort)
+	}
+	if s.Scheme == "http" || s.Scheme == "https" {
+		hosts := strings.Split(cfg.HTTPServiceConf.Hostname, ",")
+		for _, host := range hosts {
+			host = strings.TrimSpace(host)
+			if len(host) == 0 { continue }
+			s.ServiceInfo.Hostnames = append(s.ServiceInfo.Hostnames, strings.ToLower(host))
+		}
 	}
 	return s
 }

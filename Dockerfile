@@ -2,6 +2,8 @@ FROM golang:1.19-alpine AS builder
 
 WORKDIR /go/src/github.com/Max-Sum/fcbreak
 
+ARG GOPROXY=https://goproxy.io,direct
+
 COPY go.mod .
 COPY go.sum .
 

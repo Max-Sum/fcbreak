@@ -10,11 +10,12 @@ import (
 )
 
 type ServiceInfo struct {
-	Name        string `json:"name" binding:"required"`
-	RemoteAddr  string `json:"remote_addr" binding:"required"`
-	ExposedAddr string `json:"exposed_addr,omitempty"` // address for direct connection
-	ProxyAddr   string `json:"proxy_addr,omitempty"`   // address for proxy_protocol
-	Scheme      string `json:"scheme" binding:"required"`
+	Name        string   `json:"name" binding:"required"`
+	RemoteAddr  string   `json:"remote_addr,omitempty"`
+	ExposedAddr string   `json:"exposed_addr,omitempty"` // address for direct connection
+	ProxyAddr   string   `json:"proxy_addr,omitempty"`   // address for proxy_protocol
+	Scheme      string   `json:"scheme" binding:"required"`
+	Hostnames   []string `json:"hostnames,omitempty"` // binding hostname if scheme is supported
 }
 
 // ServiceReflector is the implementation on Server-side.

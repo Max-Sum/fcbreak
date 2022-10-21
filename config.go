@@ -26,15 +26,16 @@ type ServiceConf struct {
 	Name            string `ini:"-" json:"name"`
 	Scheme          string `ini:"type" json:"type"`
 	LocalAddr       string `ini:"local_ip" json:"local_ip"`
-	LocalPort       int    `ini:"local_port" json:"local_port"`
+	LocalPort       uint16 `ini:"local_port" json:"local_port"`
 	BindAddr        string `ini:"bind_addr" json:"bind_addr"`
-	BindPort        int    `ini:"bind_port" json:"bind_port"`
+	BindPort        uint16 `ini:"bind_port" json:"bind_port"`
 	RemoteAddr      string `ini:"remote_addr" json:"remote_addr"`
-	RemotePort      int    `ini:"remote_port" json:"remote_port"`
+	RemotePort      uint16 `ini:"remote_port" json:"remote_port"`
 	HTTPServiceConf `ini:",extends"`
 }
 
 type HTTPServiceConf struct {
+	Hostname      string `ini:"http_hostname"`
 	Username      string `ini:"http_username"`
 	Password      string `ini:"http_password"`
 	CacheTime     int    `ini:"http_cache_time"`

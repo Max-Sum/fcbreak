@@ -15,6 +15,9 @@ Server:
 ```
 ./server
     -l [<listen ip>]:<port>   API exposing host, the API will listen as http
+    -s [<listen ip>]:<port>  API exposing host, will listen as https
+    [--cert <cert file>]      HTTPS certificate file, must be defined when -s is presented
+    [--key <key file>]        HTTPS certificate file, must be defined when -s is presented
     [-u <username>]           Set username to secure the API, optional
     [-p <password>]           Set password to secure the API, optional
 ```
@@ -37,7 +40,10 @@ type = http            # Type of service, support tcp/http/https
 local_ip = 127.0.0.1   # LAN IP of the service
 local_port = 5000      # LAN Port of the service
 remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
-remote_port = 5000     # Listening Port 
+remote_port = 5000     # [Optional] Listening Port, no remote port is assigned if not defined
+http_hostname = srv.example.com, srv.foobar.com
+                       # [Optional] Add a hostname to server, service will be accessible on 
+                                    http://<server host>:<server http port> with designated hostnames.
 http_cache_time = 0    # [Optional] Cache time of HTTP, will also control the HTTP Redirect cache.
 http_altsvc = true     # [Optional] Use AltSvc instead of redirection
 http_altsvc_nip_domain = ip.example.com # [Optional] Set AltSvc domain
@@ -47,7 +53,10 @@ type = https
 local_ip = 127.0.0.1   # LAN IP of the service
 local_port = 5001      # LAN Port of the service
 remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
-remote_port = 5001     # Listening Port on server
+remote_port = 5001     # [Optional] Listening Port, no remote port is assigned if not defined
+http_hostname = srv.example.com, srv.foobar.com
+                       # [Optional] Add a hostname to server, service will be accessible on
+                                    https://<server host>:<server https port> with designated hostnames.
 http_backend=https     # [Optional] HTTP Backend (http/https/proxy), default to http
 https_crt = /certs/example.com.crt # TLS Certificate
 https_key = /certs/example.com.key # TLS Private Key
@@ -56,7 +65,7 @@ https_key = /certs/example.com.key # TLS Private Key
 type = http
 bind_ip = 0.0.0.0      # [Optional] Binding IP on your computer, optional, default to all IP
 bind_port = 5012       # [Optional] Binding port on your computer, optional, default ramdom port
-remote_port = 5002     # Listening Port
+remote_port = 5002     # [Optional] Listening Port, no remote port is assigned if not defined
 http_username=proxy    # [Optional] HTTP Basic Auth Username
 http_password=password # [Optional] HTTP Basic Auth Password
 http_backend=proxy
