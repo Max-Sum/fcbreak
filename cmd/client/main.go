@@ -14,7 +14,7 @@ import (
 var svcs map[string]*fcbreak.ServiceClient
 
 func main() {
-	parser := argparse.NewParser("natbreaker-client", "Reflect connectors info back")
+	parser := argparse.NewParser("fcbreak-client", "Reflect connectors info back")
 	// Create string flag
 	cfgpath := parser.String("c", "Config", &argparse.Options{Required: true, Help: "Config File"})
 	// force register flag

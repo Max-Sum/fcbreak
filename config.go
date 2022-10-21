@@ -4,6 +4,8 @@ type ClientCommonConf struct {
 	// ServerAddr specifies the address of the server to connect to. By
 	// default, this value is "http://0.0.0.0:7001".
 	Server string `ini:"server" json:"server"`
+	// SkipTLSVerify willl skip the check of TLS certificates.
+	SkipTLSVerify bool `ini:"skip_verify" json:"skip_verify"`
 	// HeartBeatInterval specifies at what interval heartbeats are sent to the
 	// server, in seconds. It is not recommended to change this value. By
 	// default, this value is 30.
@@ -17,6 +19,7 @@ type ClientCommonConf struct {
 func GetDefaultClientConf() ClientCommonConf {
 	return ClientCommonConf{
 		Server:            "http://0.0.0.0:7001",
+		SkipTLSVerify:     false,
 		HeartbeatInterval: 30,
 		HeartbeatTimeout:  90,
 	}

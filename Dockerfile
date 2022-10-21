@@ -32,6 +32,7 @@ FROM scratch as client
 WORKDIR /
 COPY --from=builder \
      /go/src/github.com/Max-Sum/fcbreak/client /client
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 ENTRYPOINT [ "/client" ]
 CMD ["-c", "config.ini", "-f"]

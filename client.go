@@ -2,6 +2,8 @@ package fcbreak
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,21 +34,27 @@ func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient 
 	}
 	c.client.Transport = &http.Transport{
 		Proxy:               nil,
-		Dial:                c.DialBindAddr,
+		DialContext:         c.DialBindAddr,
 		MaxIdleConns:        0,
 		MaxIdleConnsPerHost: 0,
 		MaxConnsPerHost:     0,
 		IdleConnTimeout:     120 * time.Second,
 		DisableKeepAlives:   false,
+		TLSClientConfig:     &tls.Config{
+			InsecureSkipVerify: clientCfg.SkipTLSVerify,
+		},
 	}
 	c.pClient.Transport = &http.Transport{
 		Proxy:               nil,
-		Dial:                c.DialProxyAddr,
+		DialContext:         c.DialProxyAddr,
 		MaxIdleConns:        0,
 		MaxIdleConnsPerHost: 0,
 		MaxConnsPerHost:     0,
 		IdleConnTimeout:     120 * time.Second,
 		DisableKeepAlives:   false,
+		TLSClientConfig:     &tls.Config{
+			InsecureSkipVerify: clientCfg.SkipTLSVerify,
+		},
 	}
 	return c
 }
@@ -181,12 +189,12 @@ func (c *ServiceClient) refreshTimer() {
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialBindAddr(network string, addr string) (net.Conn, error) {
+func (c *ServiceClient) DialBindAddr(_ context.Context, network string, addr string) (net.Conn, error) {
 	return reuse.Dial("tcp", c.listener.Addr().String(), addr)
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialProxyAddr(network string, addr string) (net.Conn, error) {
+func (c *ServiceClient) DialProxyAddr(_ context.Context, network string, addr string) (net.Conn, error) {
 	return reuse.Dial("tcp", c.listener.pListener.Addr().String(), addr)
 }
 
@@ -197,7 +205,7 @@ func (c *ServiceClient) Start(force bool) error {
 	}
 	c.listener = l.(*svcInitMuxListener)
 	if err := c.register(); err != nil {
-		if ! force {
+		if !force {
 			l.Close()
 			return err
 		}

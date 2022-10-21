@@ -99,8 +99,8 @@ func (s *Server) addService(svc *ServiceInfo) (*ServiceInfo, error) {
 		if err := r.Listen(); err != nil {
 			return nil, err
 		}
+		go r.Serve()
 	}
-	go r.Serve()
 	s.reflectors[svc.Name] = TimedService{
 		ServiceReflector: r,
 		updateCh:         make(chan struct{}),
