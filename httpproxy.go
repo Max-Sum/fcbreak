@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -69,48 +68,40 @@ func (hp *HTTPProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 func (hp *HTTPProxy) InfoHandler(rw http.ResponseWriter, req *http.Request) {
 	clashTemp := `proxies:
-  - {name: %[1]s, type: http, server: %[3]s, port: %[4]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}
-  - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]d, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}`
-	quanxTemp := `http=%[3]s:%[4]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s
-http=%[5]s:%[6]d, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
+  - {name: %[1]s, type: http, server: %[3]s, port: %[4]s, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}
+  - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]s, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}`
+	quanxTemp := `http=%[3]s:%[4]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s
+http=%[5]s:%[6]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
 	name := hp.s.Cfg.Name
 	scheme := hp.s.Cfg.Scheme
-	eip, eportStr, err := net.SplitHostPort(hp.s.ExposedAddr)
+	eip, eportStr, err := hp.s.httpServ.ExposedDomainPort()
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
 		return
 	}
-	eport, err := strconv.Atoi(eportStr)
-	if err != nil {
-		http.Error(rw, err.Error(), 500)
-		return
-	}
-	rip, rportStr, err := net.SplitHostPort(req.Host)
-	if err != nil {
-		http.Error(rw, err.Error(), 500)
-		return
-	}
-	rport, err := strconv.Atoi(rportStr)
-	if err != nil {
-		http.Error(rw, err.Error(), 500)
-		return
-	}
-	host, _, err := net.SplitHostPort(req.Host)
-	if err != nil {
-		http.Error(rw, err.Error(), 500)
-		return
+	if !req.URL.IsAbs() {
+		req.URL.Host = req.Host
 	}
 	tls := scheme == "https"
+	rip := req.URL.Hostname()
+	rportStr := req.URL.Port()
+	if rportStr == "" {
+		if tls {
+			rportStr = "443"
+		} else {
+			rportStr = "80"
+		}
+	}
 	user := hp.s.Cfg.Username
 	pass := hp.s.Cfg.Password
 	tlsInsecure := hp.s.Cfg.ProxyInsecure
 	switch req.URL.Path {
 	case "/clash":
-		fmt.Fprintf(rw, clashTemp, name, host, eip, eport, rip, rport, tls, user, pass, tlsInsecure)
+		fmt.Fprintf(rw, clashTemp, name, rip, eip, eportStr, rip, rportStr, tls, user, pass, tlsInsecure)
 	case "/quan":
 		fallthrough
 	case "/quanx":
-		fmt.Fprintf(rw, quanxTemp, name, host, eip, eport, rip, rport, tls, user, pass, !tlsInsecure)
+		fmt.Fprintf(rw, quanxTemp, name, rip, eip, eportStr, rip, rportStr, tls, user, pass, !tlsInsecure)
 	default:
 		http.NotFound(rw, req)
 	}

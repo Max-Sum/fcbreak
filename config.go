@@ -43,6 +43,7 @@ type HTTPServiceConf struct {
 	Password      string `ini:"http_password"`
 	CacheTime     int    `ini:"http_cache_time"`
 	AltSvc        bool   `ini:"http_altsvc"`
+	DDNSDomain    string `ini:"http_ddns_domain"`
 	NIPDomain     string `ini:"http_nip_domain"`
 	Backend       string `ini:"http_backend"`
 	ChainProxy    string `ini:"http_proxy_chain"`
