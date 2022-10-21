@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"time"
@@ -40,7 +41,7 @@ func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient 
 		MaxConnsPerHost:     0,
 		IdleConnTimeout:     120 * time.Second,
 		DisableKeepAlives:   false,
-		TLSClientConfig:     &tls.Config{
+		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: clientCfg.SkipTLSVerify,
 		},
 	}
@@ -52,7 +53,7 @@ func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient 
 		MaxConnsPerHost:     0,
 		IdleConnTimeout:     120 * time.Second,
 		DisableKeepAlives:   false,
-		TLSClientConfig:     &tls.Config{
+		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: clientCfg.SkipTLSVerify,
 		},
 	}
@@ -210,6 +211,7 @@ func (c *ServiceClient) Start(force bool) error {
 			return err
 		}
 		for err != nil {
+			log.Printf("Failed to register [%s]: %v, retrying.", c.svc.Name, err)
 			time.Sleep(time.Second)
 			c.delete()
 			err = c.register()
