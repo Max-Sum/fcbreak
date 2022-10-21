@@ -103,11 +103,14 @@ docker run -n fcbreak --host \
 
 ### HTTPS
 客户端可以转发https，如果后端为http，还会设置`X-Forwarded-For`、`X-Real-IP`等头部通知后端真实IP。
+
+#### ACME证书
+由于HTTP-01的验证方式不太可行，建议选择DNS-01配置dns注册泛域名证书。
 ```
 [https_http] # 暴露https服务，后端为http
 type = https
-local_port = 443
-remote_port = 8080
+local_port = 80
+remote_port = 8443
 http_backend = http
 https_crt = <公钥位置>
 https_key = <私钥位置>
@@ -115,7 +118,7 @@ https_key = <私钥位置>
 [https_https] # 暴露https服务，后端为https
 type = https
 local_port = 443
-remote_port = 8080
+remote_port = 8444
 http_backend = https
 https_crt = <公钥位置>
 https_key = <私钥位置>
@@ -129,8 +132,8 @@ DDNS和NIP只需设置一个即可。
 ```
 [https_http] # 暴露https服务，后端为http
 type = https
-local_port = 443
-remote_port = 8080
+local_port = 80
+remote_port = 8443
 http_backend = http
 https_crt = <公钥位置>
 https_key = <私钥位置>
@@ -160,8 +163,8 @@ http_hostname = svc.example.com, svc.foobar.com
 
 [https_http] # 暴露https服务，后端为http
 type = https
-local_port = 443
-remote_port = 8080
+local_port = 80
+remote_port = 8443
 http_backend = http
 https_crt = <公钥位置>
 https_key = <私钥位置>
@@ -171,6 +174,19 @@ http_hostname = svc.example.com, svc.foobar.com
 
 完成后可以访问`http://svc.example.com:<HTTP API端口>`或`https://svc.foobar.com:<HTTPS API端口>`。
 
+### 服务端部署于代理之后
+如果代理支持proxy protocol并能正确设置源IP及源端口，则本服务可以部署于代理之后。
+服务器开启proxy protocol：
+```
+docker run -n fcbreak gzmaxsum/fcbreak-server  \
+    -l [<监听IP>]:<端口>  \     # HTTP 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    -s [<监听IP>]:<端口>  \     # HTTPS 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    [--cert <cert file>] \     # [可选]HTTPS 证书公钥文件路径，若使用-s则必须设置
+    [--key <key file>]   \     # [可选]HTTPS 私钥文件路径，若使用-s则必须设置
+    --proxy-protocol   \     # [可选]使用proxy protcol，仅作为代理服务器后使用
+    [-u <username>]      \     # [可选]服务端用户名
+    [-p <password>]      \     # [可选]服务端密码
+```
 
 ### 认证
 http/https服务，均可以开启认证
@@ -215,8 +231,8 @@ quanx订阅：`https://<服务器IP>:5201/quanx`
 ```
 [https_http]
 type = https
-local_port = 443
-remote_port = 8080
+local_port = 80
+remote_port = 8443
 http_backend = http
 https_crt = <公钥位置>
 https_key = <私钥位置>
