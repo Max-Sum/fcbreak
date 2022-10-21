@@ -147,6 +147,31 @@ NIP是一种特殊的域名，它与IP地址一一对应，如`114-514-19-19.ip.
 
 NIP的服务器需要另外部署，参见[sslip.io](https://sslip.io/)。
 
+### 虚拟服务
+每一个HTTP服务都占据一个端口很占用端口空间，可以配置虚拟服务器，共享API的端口。
+https、http均可使用。
+但如果使用https服务则需要开启https API端口，使用http服务则需要开启http API端口。两种API接口可以同时打开。
+```
+[http] # 暴露http服务
+type = http
+local_port = 80
+#remote_port = 8080   # 配置虚拟服务器时可以不绑定端口
+http_hostname = svc.example.com, svc.foobar.com
+
+[https_http] # 暴露https服务，后端为http
+type = https
+local_port = 443
+remote_port = 8080
+http_backend = http
+https_crt = <公钥位置>
+https_key = <私钥位置>
+http_hostname = svc.example.com, svc.foobar.com
+```
+另外还需设置`svc.example.com`和`svc.foobar.com`指向服务器地址。
+
+完成后可以访问`http://svc.example.com:<HTTP API端口>`或`https://svc.foobar.com:<HTTPS API端口>`。
+
+
 ### 认证
 http/https服务，均可以开启认证
 ```
