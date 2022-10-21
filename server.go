@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/tools/go/analysis/passes/nilfunc"
 )
 
 var (
@@ -37,6 +38,13 @@ func (svc TimedService) Timeout(s *Server) {
 			}
 		}
 	}
+}
+
+// GetServiceInfoForOutput filters fields for output
+func (svc TimedService) GetServiceInfoForOutput() ServiceInfo {
+	info := svc.GetServiceInfo()
+	info.ProxyAddr = ""
+	return info
 }
 
 type Server struct {
@@ -137,7 +145,7 @@ func (s *Server) GetServices(c *gin.Context) {
 	svcs := make(map[string]ServiceInfo)
 	s.mutex.RLock()
 	for n, r := range s.reflectors {
-		svcs[n] = r.GetServiceInfo()
+		svcs[n] = r.GetServiceInfoForOutput()
 	}
 	s.mutex.RUnlock()
 	c.IndentedJSON(http.StatusOK, svcs)
@@ -152,7 +160,7 @@ func (s *Server) GetServiceByName(c *gin.Context) {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 		return
 	}
-	c.IndentedJSON(http.StatusOK, r.GetServiceInfo())
+	c.IndentedJSON(http.StatusOK, r.GetServiceInfoForOutput())
 }
 
 func (s *Server) PostService(c *gin.Context) {
