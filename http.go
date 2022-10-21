@@ -115,15 +115,16 @@ func (s *HTTPService) auth(r *http.Request, w http.ResponseWriter) {
 }
 
 func (s *HTTPService) exposedAddr() (string, error) {
-	if len(s.Cfg.NIPDomain) == 0 {
-		return s.ExposedAddr, nil
-	}
 	host, port, err := net.SplitHostPort(s.ExposedAddr)
 	if err != nil {
 		return s.ExposedAddr, err
 	}
-	host = strings.ReplaceAll(host, ".", "-") + "." + s.Cfg.NIPDomain
-	return host + ":" + port, nil
+	if len(s.Cfg.NIPDomain) > 0 {
+		host = strings.ReplaceAll(host, ".", "-") + "." + s.Cfg.NIPDomain
+	} else if len(s.Cfg.DDNSDomain) >0 {
+		host = s.Cfg.DDNSDomain
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 func (s *HTTPService) ModifyResponse(r *http.Response) error {

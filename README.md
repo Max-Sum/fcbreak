@@ -34,7 +34,8 @@ Client Config File:
 ```
 [common]
 server = http://<user>:<pass>@<server host>:<server port> # Server API address
-heartbeat_interval = 15           # Heartbeat frequency 
+heartbeat_interval = 15 # [Optional] Heartbeat frequency
+skip_verify = false    # [Optional] Skip TLS certification verification, default false.
 
 [http_service]         # Name of exposing service
 type = http            # Type of service, support tcp/http/https
@@ -45,9 +46,14 @@ remote_port = 5000     # [Optional] Listening Port, no remote port is assigned i
 http_hostname = srv.example.com, srv.foobar.com
                        # [Optional] Add a hostname to server, service will be accessible on 
                                     http://<server host>:<server http port> with designated hostnames.
+http_ddns_domain = ddns.example.com
+                       # [Optional] Set DDNS domain. If set, redirection will go to the domain name instead of IP.
+                          DDNS need to be updated using other programs.
+http_nip_domain = ip.example.com
+                       # [Optional] Set AltSvc domain. If set, redirection will use pattern like
+                          1-1-1-1.ip.example.com instead of IP. ddns domain will not be used if this is set.
 http_cache_time = 0    # [Optional] Cache time of HTTP, will also control the HTTP Redirect cache.
 http_altsvc = true     # [Optional] Use AltSvc instead of redirection
-http_altsvc_nip_domain = ip.example.com # [Optional] Set AltSvc domain
 
 [https_service]
 type = https
