@@ -1,88 +1,334 @@
+[![Docker](https://github.com/Max-Sum/fcbreak/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Max-Sum/fcbreak/actions/workflows/docker-publish.yml)
+
+[English](https://github.com/Max-Sum/fcbreak/blob/master/README_en.md)
+
 # Fullcone Breaker
 
-This is an NAT traversal tool for fullcone NAT only, allowing TCP traversal.
+专为Fullcone NAT打造的TCP打洞工具。
 
-## Prerequision
+## 需求
 
-Fullcone NAT is required. If your ISP uses CGN, it's very likely that you have fullcone NAT.
+使用之前，必须确认本地网络拥有Fullcone NAT，如果您的运营商部署了CGN，大概率使用的就是Fullcone NAT。
 
-Additionally, any NAT box between your computer and internet need to be fullcone, or you can set DMZ to your computer.
+然而，在您的电脑和互联网中间部署的任何NAT设备都需要确保为Fullcone，这些设备包括路由器、路由模式的光猫，通常可以通过设置DMZ来解决。您可能因为防火墙等原因无法正常使用。您可以通过stun检测本地网络是否为fullcone NAT。
 
-## Usage
+此外您还需要一个在公网能访问的服务器，服务器前不能布置任何有SNAT的设备。
 
-Server:
+## 原理
+
+TCP打洞原理与UDP打洞类似。但Fullcone的大部分设备都不会对流的发起方向作限制。因此可以维持一条对服务器的TCP连接，从而维持流状态。
+
+此外，传统打洞需要客户端部署设备读取暴露的端口。本项目可以使用HTTP转跳的方式完成，无需特别部署客户端。
+
+## 快速部署
+
+### 服务端
+```
+docker run -n fcbreak --host gzmaxsum/fcbreak-server -l :7000 
+```
+
+### 客户端
+
+#### 配置文件
+```
+[common]
+server = http://<服务器地址>:7000
+
+[ssh]  # 暴露TCP服务
+type = tcp
+local_port = 22
+remote_port = 2200
+
+[http] # 暴露http服务
+type = http
+local_port = 80
+remote_port = 8080
+```
+
+#### 运行
+```
+docker run -n fcbreak --host gzmaxsum/fcbreak-client -c /config.ini:<配置文件路径>:ro -f
+```
+
+#### 使用
+运行成功访问：`http://<服务器地址>:8080`，会自动转跳到`http://<公网IP>:<随机端口>`。此时即可直连使用服务。
+
+TCP服务如果连接`<服务器地址>:2200`则会由服务器中转。您可以访问`http://<服务器地址>:7000/services`，查看当前所有注册的服务及其对应的端口。
+
+```
+{
+    "ssh": {
+        "name": "ssh",
+        "remote_addr": ":2200",
+        "exposed_addr": "114.514.19.19:8810",    # 此处为暴露的公网地址
+        "scheme": "tcp",
+    },
+    "http": {
+        "name": "http",
+        "remote_addr": ":8080",
+        "exposed_addr": "114.514.19.19:8222",    # 此处为http暴露的公网地址，即上述转跳到的地址
+        "scheme": "http",
+    }
+}
+```
+
+## 进阶功能
+
+### 保护API
+API直接暴露在公网且没有密码保护并不安全。通过设置证书可以使用https加密。
+服务端：
+```
+docker run -n fcbreak --host \
+    -v /certs:<证书目录>:ro   \
+    gzmaxsum/fcbreak-server  \
+    -s :7000                 \  # HTTPS 监听 7000 端口
+    --cert /certs/public.pem \  # 公钥
+    --key  /certs/private.pem\  # 私钥
+    -u <用户名> -p <密码>
+```
+
+客户端配置文件：
+```
+[common]
+server = https://<用户名>:<密码>@<服务器地址>:7000
+# skip_verify = false           # 跳过证书检查，使用自签证书可以使用此项，注意这并不安全。
+```
+
+如果使用自签证书，客户端可以挂载公钥以保证安全
+```
+docker run -n fcbreak --host \
+    -v /etc/ssl/certs/ca-certificates.crt:<公钥地址>:ro \
+    gzmaxsum/fcbreak-client -c /config.ini:<配置文件路径>:ro [-f]
+```
+
+### HTTPS
+客户端可以转发https，如果后端为http，还会设置`X-Forwarded-For`、`X-Real-IP`等头部通知后端真实IP。
+```
+[https_http] # 暴露https服务，后端为http
+type = https
+local_port = 443
+remote_port = 8080
+http_backend = http
+https_crt = <公钥位置>
+https_key = <私钥位置>
+
+[https_https] # 暴露https服务，后端为https
+type = https
+local_port = 443
+remote_port = 8080
+http_backend = https
+https_crt = <公钥位置>
+https_key = <私钥位置>
+```
+
+### 域名转跳
+如果您部署了证书，转跳到IP地址时就会因名称不同而造成证书无效。
+
+此时您可以部署DDNS域名或NIP域名的方式，设置转跳的域名地址。
+DDNS和NIP只需设置一个即可。
+```
+[https_http] # 暴露https服务，后端为http
+type = https
+local_port = 443
+remote_port = 8080
+http_backend = http
+https_crt = <公钥位置>
+https_key = <私钥位置>
+
+http_ddns_domain = ddns.example.com
+                       # [可选] DDNS域名，如果设置，则转跳时会跳至该域名而不是IP。DDNS需要另外设置。
+http_nip_domain = ip.example.com
+                       # [可选] NIP域名，如果设置，则转跳时会跳至123-234-123-23.ip.example.com。
+```
+
+#### NIP说明
+NIP是一种特殊的域名，它与IP地址一一对应，如`114-514-19-19.ip.example.com`会解析为`114.514.19.19`。
+这样既可以解决动态IP问题，也可以通过泛域名证书`*.ip.example.com`来认证。NIP会比DDNS更及时地更新IP。
+
+NIP的服务器需要另外部署，参见[sslip.io](https://sslip.io/)。
+
+### 认证
+http/https服务，均可以开启认证
+```
+[http] # 暴露http服务
+type = http
+local_port = 80
+remote_port = 8080
+http_username = <用户名>
+http_password = <密码>
+```
+
+### HTTP/HTTPS代理
+仅暴露http服务有时并不足够，此时可以暴露一个HTTP代理，从而连接到内网。
+由于代理可能造成安全隐患，请务必设置认证，且尽量选择https代理。
+
+```
+[http_proxy]           # http proxy 类型
+type = https           # 设置http或者https
+                       # proxy类型无需设置后端地址
+remote_port = 5201
+http_backend=proxy     # 后端为proxy时对外暴露代理
+http_proxy_chain=http://localhost:3128
+                       # [可选] 级联代理，将请求转发到下一级代理。可以使用http或socks类型。
+http_username=proxy    # [可选] http认证用户名
+http_password=password # [可选] http认证密码
+https_crt = /certs/example.com.crt # TLS 公钥证书位置，设置为https时必须
+https_key = /certs/example.com.key # TLS 私钥证书位置，设置为https时必须
+```
+
+代理类型无法进行http转跳，所以需要通过API查询暴露的公网地址。因此http代理还提供了clash订阅、Quantumult X订阅。通过订阅可以自动更新IP地址及端口。
+
+clash订阅：`https://<服务器IP>:5201/clash`
+
+quanx订阅：`https://<服务器IP>:5201/quanx`
+
+您也可以编写脚本访问API来获取直连地址。
+
+### AltSvc
+部分浏览器支持`AltSvc`功能，允许在域名不变的情况下更换后端服务器地址。
+此功能通常需要HTTPS。而且并不是任何情况都可以开启，可能造成流量经过服务器中转的情况，请谨慎开启。
+```
+[https_http]
+type = https
+local_port = 443
+remote_port = 8080
+http_backend = http
+https_crt = <公钥位置>
+https_key = <私钥位置>
+http_altsvc = true     # [可选] 使用altsvc代替转跳。
+```
+
+### 连接器
+连接器支持在linux下访问API获取暴露的服务，并维护iptables规则。从而在本机无感地访问内网服务。
+```
+sudo ./connector
+    -s http[s]://[<user>:<pass>@]<server host>:<server port> # 服务器 API
+    [-i <interval>]               # 更新间隔，默认为 300s
+```
+
+
+## 详细参数
+
+服务器端:
 
 ```
 ./server
-    -l [<listen ip>]:<port>   API exposing host, the API will listen as http
-    -s [<listen ip>]:<port>   API exposing host, will listen as https
-    [--cert <cert file>]      HTTPS certificate file, must be defined when -s is presented
-    [--key <key file>]        HTTPS certificate file, must be defined when -s is presented
-    [--proxy-protocol]        Listen using Proxy Protocol
-    [-u <username>]           Set username to secure the API, optional
-    [-p <password>]           Set password to secure the API, optional
+    -l [<监听IP>]:<端口> \       # HTTP 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    -s [<监听IP>]:<端口> \      # HTTPS 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    [--cert <cert file>]\      # [可选]HTTPS 证书公钥文件路径，若使用-s则必须设置
+    [--key <key file>]  \      # [可选]HTTPS 私钥文件路径，若使用-s则必须设置
+    [--proxy-protocol]  \      # [可选]使用proxy protcol，仅作为代理服务器后使用
+    [-u <username>]     \      # [可选]服务端用户名
+    [-p <password>]     \      # [可选]服务端密码
+```
+Docker 服务端：
+```
+docker run -n fcbreak --host gzmaxsum/fcbreak-server  \
+    -l [<监听IP>]:<端口>  \     # HTTP 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    -s [<监听IP>]:<端口>  \     # HTTPS 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
+    [--cert <cert file>] \     # [可选]HTTPS 证书公钥文件路径，若使用-s则必须设置
+    [--key <key file>]   \     # [可选]HTTPS 私钥文件路径，若使用-s则必须设置
+    [--proxy-protocol]   \     # [可选]使用proxy protcol，仅作为代理服务器后使用
+    [-u <username>]      \     # [可选]服务端用户名
+    [-p <password>]      \     # [可选]服务端密码
 ```
 
-Client:
+客户端:
 
 ```
-./client -c <path to config file>
+./client -c <配置文件的路径>
+        [-f]                # [可选] 强制注册，如果服务器已经有同名服务会覆盖。
 ```
 
-Client Config File:
+Docker 客户端：
+```
+docker run -n fcbreak --host gzmaxsum/fcbreak-client -c /config.ini:<配置文件路径>:ro [-f]
+```
+
+客户端配置文件:
 
 ```
 [common]
-server = http://<user>:<pass>@<server host>:<server port> # Server API address
-heartbeat_interval = 15           # Heartbeat frequency 
+server = http://<user>:<pass>@<server host>:<server port>
+                       # 服务器的API地址，可以设置https或http
+heartbeat_interval = 5 # [可选] 心跳间隔，保持到服务器的连接，默认为30s。
+skip_verify = false    # [可选] 跳过TLS检测，如果服务器使用的是自签证书，可以使用该项。
 
-[http_service]         # Name of exposing service
-type = http            # Type of service, support tcp/http/https
-local_ip = 127.0.0.1   # LAN IP of the service
-local_port = 5000      # LAN Port of the service
-remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
-remote_port = 5000     # [Optional] Listening Port, no remote port is assigned if not defined
+[ssh]                  # 一个section为一个对外暴露的服务
+type = tcp             # 服务类型，目前支持tcp/http/https
+# 下面为tcp/http/https均支持的参数
+local_ip = 127.0.0.1   # 服务的内网IP
+local_port = 22        # 服务的内网端口
+bind_ip = 0.0.0.0      # [可选] 在本机绑定的IP，默认为0.0.0.0。
+bind_port = 2202       # [可选] 在本机绑定的端口，默认随机设置。
+remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
+remote_port = 2200     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
+
+[http_service]         # HTTP类型
+type = http            #
+local_ip = 127.0.0.1   # 服务的内网IP
+local_port = 5000      # 服务的内网端口
+remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
+remote_port = 5000     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
+# 下面为http/https支持的参数
 http_hostname = srv.example.com, srv.foobar.com
-                       # [Optional] Add a hostname to server, service will be accessible on 
-                                    http://<server host>:<server http port> with designated hostnames.
-http_cache_time = 0    # [Optional] Cache time of HTTP, will also control the HTTP Redirect cache.
-http_altsvc = true     # [Optional] Use AltSvc instead of redirection
-http_altsvc_nip_domain = ip.example.com # [Optional] Set AltSvc domain
+                       # [可选] 注册虚拟服务。注册后可以在服务器监听的HTTP端口访问该网站。
+                       # 如服务器监听于:8080，则可以访问srv.example.com:8080。需要将域名指向服务器。
+http_ddns_domain = ddns.example.com
+                       # [可选] DDNS域名，如果设置，则转跳时会跳至该域名而不是IP。DDNS需要另外设置。
+http_nip_domain = ip.example.com
+                       # [可选] NIP域名，如果设置，则转跳时会跳至123-234-123-23.ip.example.com。
+                         该设置优先级高于ddns。NIP域名需要自行解析。
+http_username=proxy    # [可选] http认证用户名
+http_password=password # [可选] http认证密码
+http_cache_time = 0    # [可选] 转跳的缓存时间。在缓存期间，浏览器会自动转跳。默认为300s。
+http_altsvc = true     # [可选] 使用altsvc代替转跳。
+http_backend=https     # [可选] HTTP后端，可选http/https/proxy。proxy详见下面的section
 
-[https_service]
+[https_service]        # HTTPS类型
 type = https
-local_ip = 127.0.0.1   # LAN IP of the service
-local_port = 5001      # LAN Port of the service
-remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
-remote_port = 5001     # [Optional] Listening Port, no remote port is assigned if not defined
+local_ip = 127.0.0.1   # 服务的内网IP
+local_port = 5001      # 服务的内网端口
+bind_ip = 0.0.0.0      # [可选] 在本机绑定的IP，默认为0.0.0.0。
+bind_port = 5001       # [可选] 在本机绑定的端口，默认随机设置。
+remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
+remote_port = 5001     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
 http_hostname = srv.example.com, srv.foobar.com
-                       # [Optional] Add a hostname to server, service will be accessible on
-                                    https://<server host>:<server https port> with designated hostnames.
-http_backend=https     # [Optional] HTTP Backend (http/https/proxy), default to http
-https_crt = /certs/example.com.crt # TLS Certificate
-https_key = /certs/example.com.key # TLS Private Key
+                       # [可选] 注册虚拟服务。注册后可以在服务器监听的HTTP端口访问该网站。
+                       # 如服务器监听于:8080，则可以访问srv.example.com:8080。需要将域名指向服务器。
+http_ddns_domain = ddns.example.com
+                       # [可选] DDNS域名，如果设置，则转跳时会跳至该域名而不是IP。DDNS需要另外设置。
+http_nip_domain = ip.example.com
+                       # [可选] NIP域名，如果设置，则转跳时会跳至123-234-123-23.ip.example.com。
+                         该设置优先级高于ddns。NIP域名需要自行解析。
+http_username=proxy    # [可选] http认证用户名
+http_password=password # [可选] http认证密码
+http_cache_time = 0    # [可选] 转跳的缓存时间。在缓存期间，浏览器会自动转跳。默认为300s。
+http_altsvc = true     # [可选] 使用altsvc代替转跳。
+http_backend=https     # [可选] HTTP后端，可选http/https/proxy。proxy详见下一个section
+# 下面为https的参数
+https_crt = /certs/example.com.crt # TLS 公钥证书位置
+https_key = /certs/example.com.key # TLS 私钥证书位置
 
-[http_proxy]
-type = http
-bind_ip = 0.0.0.0      # [Optional] Binding IP on your computer, optional, default to all IP
-bind_port = 5012       # [Optional] Binding port on your computer, optional, default ramdom port
-remote_port = 5002     # [Optional] Listening Port, no remote port is assigned if not defined
-http_username=proxy    # [Optional] HTTP Basic Auth Username
-http_password=password # [Optional] HTTP Basic Auth Password
-http_backend=proxy
-http_proxy_chain=http://localhost:3128 # [Optional] Chain Proxy, http or socks.
+[http_proxy]           # http proxy 类型
+type = http            # 此类型可对外暴露http/https代理，从而访问更多内网服务。
+                       # proxy类型无需设置后端地址
+bind_ip = 0.0.0.0      # [可选] 在本机绑定的IP，默认为0.0.0.0。
+bind_port = 5012       # [可选] 在本机绑定的端口，默认随机设置。
+remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
+remote_port = 5002     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
+http_username=proxy    # [可选] http认证用户名
+http_password=password # [可选] http认证密码
+http_backend=proxy     # 后端为proxy时对外暴露代理
+http_proxy_chain=http://localhost:3128
+                       # [可选] 级联代理，将请求转发到下一级代理。可以使用http或socks类型。
 
-[ssh]
-type = tcp
-local_ip = 127.0.0.1
-local_port = 22
-remote_port = 2200
 ```
 
-Connector:
+连接器
 
 ```
 sudo ./connector
-    -s http[s]://[<user>:<pass>@]<server host>:<server port> # Server API
-    [-i <interval>]               # Update Interval, default 300s
+    -s http[s]://[<user>:<pass>@]<server host>:<server port> # 服务器 API
+    [-i <interval>]               # 更新间隔，默认为 300s
 ```
