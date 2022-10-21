@@ -27,11 +27,15 @@ type ServiceClient struct {
 
 func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient {
 	c := &ServiceClient{
-		svc:     svc,
-		cfg:     clientCfg,
-		client:  &http.Client{},
-		pClient: &http.Client{},
-		stopCh:  make(chan struct{}),
+		svc: svc,
+		cfg: clientCfg,
+		client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+		pClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+		stopCh: make(chan struct{}),
 	}
 	c.client.Transport = &http.Transport{
 		Proxy:               nil,
@@ -175,16 +179,19 @@ func (c *ServiceClient) delete() error {
 	return nil
 }
 
-func (c *ServiceClient) refreshTimer() {
+func (c *ServiceClient) refreshTimer() error {
 	for {
 		select {
 		case <-time.After(time.Duration(c.cfg.HeartbeatInterval) * time.Second):
-			c.refresh()
-			if c.svc.Scheme == "http" || c.svc.Scheme == "https" {
-				c.refreshProxyAddr()
+			err := c.refreshAddr()
+			if err == nil && c.svc.Scheme == "http" || c.svc.Scheme == "https" {
+				err = c.refreshProxyAddr()
+			}
+			if err != nil {
+				return err
 			}
 		case <-c.stopCh:
-			return
+			return nil
 		}
 	}
 }
@@ -205,23 +212,38 @@ func (c *ServiceClient) Start(force bool) error {
 		return err
 	}
 	c.listener = l.(*svcInitMuxListener)
-	if err := c.register(); err != nil {
-		if !force {
-			l.Close()
-			return err
-		}
-		for err != nil {
-			log.Printf("Failed to register [%s]: %v, retrying.", c.svc.Name, err)
-			time.Sleep(time.Second)
-			c.delete()
-			err = c.register()
-		}
-	}
-	if c.svc.Scheme == "http" || c.svc.Scheme == "https" {
-		c.refreshProxyAddr()
-	}
-	go c.refreshTimer()
 	go c.svc.Serve(c.listener)
+	// Register Loop
+	go func() {
+		for {
+			var err error
+			if err = c.register(); err != nil {
+				log.Printf("Failed to register [%s]: %v.", c.svc.Name, err)
+				if force {
+					log.Printf("Delete existing [%s].", c.svc.Name)
+					c.delete()
+				}
+			}
+			if err == nil && c.svc.Scheme == "http" || c.svc.Scheme == "https" {
+				if err = c.refreshProxyAddr(); err != nil {
+					log.Printf("Failed to set proxy_addr [%s]: %v.", c.svc.Name, err)
+				}
+			}
+			if err == nil {
+				log.Printf("Service [%s] registered.", c.svc.Name)
+				err = c.refreshTimer()
+				if err != nil {
+					log.Printf("Failed on refreshing [%s]: %v.", c.svc.Name, err)
+				} else {
+					// Shutdown
+					return
+				}
+			}
+			time.Sleep(3 * time.Second)
+			log.Printf("Retrying [%s].", c.svc.Name)
+		}
+	}()
+
 	return nil
 }
 
