@@ -171,7 +171,7 @@ func (s *Server) delService(ctx context.Context, name string) error {
 			}
 		} else if info.Scheme == "https" {
 			for _, host := range info.Hostnames {
-				delete(s.httpMux, host)
+				delete(s.httpsMux, host)
 			}
 		}
 		delete(s.reflectors, name)
