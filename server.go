@@ -400,7 +400,7 @@ func (s *Server) connState(conn net.Conn, state http.ConnState) {
 	name := *wc.svc
 	log.Printf("Service [%s] conn closed, Deleting.", name)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := s.DelService(ctx, name); err != nil {
+	if err := s.DelService(ctx, name); err != nil && err != ErrorServiceNotFound {
 		log.Printf("Delete Service [%s] Error: %v", name, err)
 	}
 	cancel()
