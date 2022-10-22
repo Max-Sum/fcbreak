@@ -1,7 +1,7 @@
 package fcbreak
 
 import (
-	"io"
+	"context"
 	"log"
 	"net"
 	"sync"
@@ -23,6 +23,8 @@ type ServiceReflector struct {
 	info  ServiceInfo
 	l     net.Listener
 	mutex sync.RWMutex
+	wg    sync.WaitGroup
+	conns map[*net.Conn]struct{}
 }
 
 func NewServiceReflector(info *ServiceInfo) *ServiceReflector {
@@ -35,7 +37,11 @@ func NewServiceReflector(info *ServiceInfo) *ServiceReflector {
 
 // Handle an client request
 func (r *ServiceReflector) Handle(conn net.Conn) error {
-	defer conn.Close()
+	r.trackConn(&conn, true)
+	defer func() {
+		conn.Close()
+		r.trackConn(&conn, false)
+	}()
 	r.mutex.RLock()
 	addr := r.info.ExposedAddr
 	useProxyProto := r.info.ProxyAddr != ""
@@ -61,29 +67,7 @@ func (r *ServiceReflector) Handle(conn net.Conn) error {
 		}
 	}
 	// Proxy TCP Link
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		_, err := io.Copy(conn, rconn)
-		if cw, ok := conn.(CloseWriter); ok {
-			cw.CloseWrite()
-		}
-		rconn.CloseRead()
-		if err != nil && err != io.EOF {
-			log.Printf("copy err %v\n", err)
-		}
-		wg.Done()
-	}()
-	_, err = io.Copy(rconn, conn)
-	if cr, ok := conn.(CloseReader); ok {
-		cr.CloseRead()
-	}
-	rconn.CloseWrite()
-	wg.Wait()
-	if err != nil && err != io.EOF {
-		log.Printf("copy err %v\n", err)
-		return err
-	}
+	transport(conn, rconn)
 	return nil
 }
 
@@ -113,6 +97,9 @@ func (r *ServiceReflector) Serve() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
+			if !r.Running() {
+				return
+			}
 			log.Println("listener.Accept error:", err)
 			break
 		}
@@ -120,16 +107,30 @@ func (r *ServiceReflector) Serve() {
 	}
 }
 
-func (r *ServiceReflector) Stop() error {
+func (r *ServiceReflector) Stop(ctx context.Context) error {
 	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	if r.l != nil {
-		if err := r.l.Close(); err != nil {
-			return err
-		}
+	l := r.l
+	if l != nil {
 		r.l = nil
+		l.Close()
 	}
-	return nil
+	r.mutex.Unlock()
+	// Graceful Shutdown until context done
+	waitCh := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(waitCh)
+	}()
+	select {
+	case <-ctx.Done():
+		// Force close
+		for c := range r.conns {
+			(*c).Close()
+		}
+		return ctx.Err()
+	case <-waitCh:
+		return nil
+	}
 }
 
 func (r *ServiceReflector) Running() bool {
@@ -161,5 +162,20 @@ func (r *ServiceReflector) UpdateAddr(exposedAddr *string, proxyAddr *string) {
 	}
 	if proxyAddr != nil {
 		r.info.ProxyAddr = *proxyAddr
+	}
+}
+
+func (r *ServiceReflector) trackConn(conn *net.Conn, add bool) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.conns == nil {
+		r.conns = make(map[*net.Conn]struct{})
+	}
+	if add {
+		r.conns[conn] = struct{}{}
+		r.wg.Add(1)
+	} else {
+		delete(r.conns, conn)
+		r.wg.Done()
 	}
 }

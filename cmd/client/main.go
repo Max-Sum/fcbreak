@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Max-Sum/fcbreak"
 	"github.com/akamensky/argparse"
@@ -40,22 +43,17 @@ func main() {
 
 	svcs = make(map[string]*fcbreak.ServiceClient)
 
-	defer func() {
-		for _, svc := range svcs {
-			svc.Stop()
-		}
-	}()
-
 	// Start Client
-	for k, v := range serverCfgs {
-		svc := fcbreak.NewService(k, v)
+	for k := range serverCfgs {
+		cfg := serverCfgs[k]
+		svc := fcbreak.NewService(k, &cfg)
 		client := fcbreak.NewServiceClient(svc, &commonCfg)
 		err := client.Start(*force)
 		if err != nil {
 			log.Printf("%v", err)
 			return
 		}
-		svcs[svc.Name] = client
+		svcs[cfg.Name] = client
 	}
 
 	log.Println("Up and running.")
@@ -70,4 +68,16 @@ func main() {
 
 	<-sigc
 	log.Println("Exiting...")
+
+	wg := &sync.WaitGroup{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	for _, svc := range svcs {
+		wg.Add(1)
+		go func(svc *fcbreak.ServiceClient) {
+			svc.Stop(ctx)
+			wg.Done()
+		}(svc)
+	}
+	wg.Wait()
+	cancel()
 }

@@ -8,26 +8,25 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 
 	"golang.org/x/net/proxy"
 )
 
 type HTTPProxy struct {
-	s      *Service
+	s      *HTTPService
 	tp     http.Transport
 	dialer proxy.Dialer
 }
 
-func NewHTTPProxy(s *Service) *HTTPProxy {
+func NewHTTPProxy(s *HTTPService) *HTTPProxy {
 	p := &HTTPProxy{
 		s:      s,
 		tp:     http.Transport{},
 		dialer: proxy.Direct,
 	}
 	// proxy
-	if s.Cfg.ChainProxy != "" {
-		httpProxyURI, err := url.Parse(s.Cfg.ChainProxy)
+	if s.GetCfg().ChainProxy != "" {
+		httpProxyURI, err := url.Parse(s.GetCfg().ChainProxy)
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
@@ -71,9 +70,9 @@ func (hp *HTTPProxy) InfoHandler(rw http.ResponseWriter, req *http.Request) {
   - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]s, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}`
 	quanxTemp := `http=%[3]s:%[4]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s
 http=%[5]s:%[6]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
-	name := hp.s.Cfg.Name
-	scheme := hp.s.Cfg.Scheme
-	eip, eportStr, err := hp.s.httpServ.ExposedDomainPort()
+	name := hp.s.GetCfg().Name
+	scheme := hp.s.GetCfg().Scheme
+	eip, eportStr, err := hp.s.ExposedDomainPort()
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
 		return
@@ -91,9 +90,9 @@ http=%[5]s:%[6]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s
 			rportStr = "80"
 		}
 	}
-	user := hp.s.Cfg.Username
-	pass := hp.s.Cfg.Password
-	tlsInsecure := hp.s.Cfg.ProxyInsecure
+	user := hp.s.GetCfg().Username
+	pass := hp.s.GetCfg().Password
+	tlsInsecure := hp.s.GetCfg().ProxyInsecure
 	switch req.URL.Path {
 	case "/clash":
 		fmt.Fprintf(rw, clashTemp, name, rip, eip, eportStr, rip, rportStr, tls, user, pass, tlsInsecure)
@@ -134,6 +133,7 @@ func (hp *HTTPProxy) ConnectHandler(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "Failed", http.StatusBadRequest)
 		return
 	}
+	defer remote.Close()
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
 		rw.WriteHeader(http.StatusInternalServerError)
@@ -147,37 +147,12 @@ func (hp *HTTPProxy) ConnectHandler(rw http.ResponseWriter, req *http.Request) {
 	}
 	client.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 
-	// Copy
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		_, err := io.Copy(remote, client)
-		if cw, ok := remote.(CloseWriter); ok {
-			cw.CloseWrite()
-		}
-		if cr, ok := client.(CloseReader); ok {
-			cr.CloseRead()
-		}
-		if err != nil && err != io.EOF {
-			log.Printf("copy err %v\n", err)
-		}
-		wg.Done()
-	}()
-	_, err = io.Copy(client, remote)
-	if cw, ok := client.(CloseWriter); ok {
-		cw.CloseWrite()
-	}
-	if cr, ok := remote.(CloseReader); ok {
-		cr.CloseRead()
-	}
-	wg.Wait()
-	if err != nil && err != io.EOF {
-		log.Printf("copy err %v\n", err)
-	}
+	transport(remote, client)
+	client.Close()
 }
 
 func (hp *HTTPProxy) Auth(req *http.Request, header string) bool {
-	if hp.s.Cfg.Username == "" && hp.s.Cfg.Password == "" {
+	if hp.s.GetCfg().Username == "" && hp.s.GetCfg().Password == "" {
 		return true
 	}
 	u, p, ok := basicAuth(req, header)
@@ -185,7 +160,7 @@ func (hp *HTTPProxy) Auth(req *http.Request, header string) bool {
 		log.Printf("Authenication Failed: Failed to get auth info.\n")
 		return false
 	}
-	if u != hp.s.Cfg.Username || p != hp.s.Cfg.Password {
+	if u != hp.s.GetCfg().Username || p != hp.s.GetCfg().Password {
 		log.Printf("Authenication Failed: %s:%s not matched.\n", u, p)
 		return false
 	}

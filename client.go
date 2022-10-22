@@ -17,15 +17,16 @@ import (
 )
 
 type ServiceClient struct {
-	svc      *Service
-	listener *svcInitMuxListener
-	client   *http.Client
-	pClient  *http.Client
-	cfg      *ClientCommonConf
-	stopCh   chan (struct{})
+	svc       Service
+	listener  net.Listener
+	pListener net.Listener
+	client    *http.Client
+	pClient   *http.Client
+	cfg       *ClientCommonConf
+	stopCh    chan struct{}
 }
 
-func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient {
+func NewServiceClient(svc Service, clientCfg *ClientCommonConf) *ServiceClient {
 	c := &ServiceClient{
 		svc: svc,
 		cfg: clientCfg,
@@ -66,7 +67,8 @@ func NewServiceClient(svc *Service, clientCfg *ClientCommonConf) *ServiceClient 
 
 func (c *ServiceClient) register() error {
 	addr := fmt.Sprintf("%s/services", c.cfg.Server)
-	str, err := json.Marshal(c.svc.ServiceInfo)
+	info := c.svc.GetInfo()
+	str, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
@@ -85,15 +87,16 @@ func (c *ServiceClient) register() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("Register [" + c.svc.Name + "] error: " + string(by))
+		return errors.New("Register [" + info.Name + "] error: " + string(by))
 	}
-	return json.Unmarshal(by, &c.svc.ServiceInfo)
+	return json.Unmarshal(by, info)
 }
 
 func (c *ServiceClient) refresh() error {
 	// Update Service
-	addr := fmt.Sprintf("%s/services/%s", c.cfg.Server, c.svc.Name)
-	str, err := json.Marshal(c.svc.ServiceInfo)
+	info := c.svc.GetInfo()
+	addr := fmt.Sprintf("%s/services/%s", c.cfg.Server, info.Name)
+	str, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
@@ -112,14 +115,15 @@ func (c *ServiceClient) refresh() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("Refresh [" + c.svc.Name + "] error: " + string(by))
+		return errors.New("Refresh [" + info.Name + "] error: " + string(by))
 	}
-	return json.Unmarshal(by, &c.svc.ServiceInfo)
+	return json.Unmarshal(by, info)
 }
 
 func (c *ServiceClient) refreshAddr() error {
 	// Update Service's exposed address
-	addr := fmt.Sprintf("%s/services/%s/addr", c.cfg.Server, c.svc.Name)
+	info := c.svc.GetInfo()
+	addr := fmt.Sprintf("%s/services/%s/addr", c.cfg.Server, info.Name)
 	req, err := http.NewRequest("PUT", addr, nil)
 	if err != nil {
 		return err
@@ -134,14 +138,15 @@ func (c *ServiceClient) refreshAddr() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("Refresh [" + c.svc.Name + "]'s address error: " + string(by))
+		return errors.New("Refresh [" + info.Name + "]'s address error: " + string(by))
 	}
-	return json.Unmarshal(by, &c.svc.ServiceInfo)
+	return json.Unmarshal(by, info)
 }
 
 func (c *ServiceClient) refreshProxyAddr() error {
 	// Update Service's Proxy protocol address
-	addr := fmt.Sprintf("%s/services/%s/proxy_addr", c.cfg.Server, c.svc.Name)
+	info := c.svc.GetInfo()
+	addr := fmt.Sprintf("%s/services/%s/proxy_addr", c.cfg.Server, info.Name)
 	req, err := http.NewRequest("PUT", addr, nil)
 	if err != nil {
 		return err
@@ -156,13 +161,14 @@ func (c *ServiceClient) refreshProxyAddr() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("Refresh [" + c.svc.Name + "]'s Proxy address error: " + string(by))
+		return errors.New("Refresh [" + info.Name + "]'s Proxy address error: " + string(by))
 	}
-	return json.Unmarshal(by, &c.svc.ServiceInfo)
+	return json.Unmarshal(by, info)
 }
 
 func (c *ServiceClient) delete() error {
-	addr := fmt.Sprintf("%s/services/%s", c.cfg.Server, c.svc.Name)
+	info := c.svc.GetInfo()
+	addr := fmt.Sprintf("%s/services/%s", c.cfg.Server, info.Name)
 	req, err := http.NewRequest("DELETE", addr, nil)
 	if err != nil {
 		return err
@@ -174,23 +180,26 @@ func (c *ServiceClient) delete() error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		by, _ := io.ReadAll(resp.Body)
-		return errors.New("Delete [" + c.svc.Name + "] error: " + string(by))
+		return errors.New("Delete [" + info.Name + "] error: " + string(by))
 	}
 	return nil
 }
 
-func (c *ServiceClient) refreshTimer() error {
+func (c *ServiceClient) refreshTimer(exitCh chan struct{}) error {
+	refreshProxy := c.svc.GetInfo().Scheme == "http" || c.svc.GetInfo().Scheme == "https"
 	for {
 		select {
 		case <-time.After(time.Duration(c.cfg.HeartbeatInterval) * time.Second):
 			err := c.refreshAddr()
-			if err == nil && c.svc.Scheme == "http" || c.svc.Scheme == "https" {
+			if err == nil && refreshProxy {
 				err = c.refreshProxyAddr()
 			}
 			if err != nil {
 				return err
 			}
 		case <-c.stopCh:
+			return nil
+		case <-exitCh:
 			return nil
 		}
 	}
@@ -203,52 +212,112 @@ func (c *ServiceClient) DialBindAddr(_ context.Context, network string, addr str
 
 // Use the binded address to dial
 func (c *ServiceClient) DialProxyAddr(_ context.Context, network string, addr string) (net.Conn, error) {
-	return reuse.Dial("tcp", c.listener.pListener.Addr().String(), addr)
+	return reuse.Dial("tcp", c.pListener.Addr().String(), addr)
 }
 
 func (c *ServiceClient) Start(force bool) error {
-	l, err := c.svc.Listen()
-	if err != nil {
-		return err
+	info := c.svc.GetInfo()
+	if c.svc.GetCfg().BindPort != 0 {
+		// Checking port availability
+		l, err := listenForService(c.svc)
+		if err != nil {
+			return err
+		}
+		c.listener = l
 	}
-	c.listener = l.(*svcInitMuxListener)
-	go c.svc.Serve(c.listener)
-	// Register Loop
+	// Retry Loop
 	go func() {
 		for {
 			var err error
-			if err = c.register(); err != nil {
-				log.Printf("Failed to register [%s]: %v.", c.svc.Name, err)
-				if force {
-					log.Printf("Delete existing [%s].", c.svc.Name)
-					c.delete()
+			retryCh := make(chan struct{}) // channel to see if an retry is triggered
+			errCh := make(chan error)
+			// Listen
+			if c.listener == nil {
+				if c.listener, err = listenForService(c.svc); err != nil {
+					log.Printf("Failed to listen for [%s]: %v.", info.Name, err)
 				}
 			}
-			if err == nil && c.svc.Scheme == "http" || c.svc.Scheme == "https" {
-				if err = c.refreshProxyAddr(); err != nil {
-					log.Printf("Failed to set proxy_addr [%s]: %v.", c.svc.Name, err)
+			if err == nil && info.Scheme == "http" || info.Scheme == "https" {
+				if c.pListener, err = listenProxyForService(c.svc); err != nil {
+					log.Printf("Failed to listen for [%s]: %v.", info.Name, err)
 				}
 			}
+			// Register
 			if err == nil {
-				log.Printf("Service [%s] registered.", c.svc.Name)
-				err = c.refreshTimer()
-				if err != nil {
-					log.Printf("Failed on refreshing [%s]: %v.", c.svc.Name, err)
-				} else {
-					// Shutdown
-					return
+				if err = c.register(); err != nil {
+					log.Printf("Failed to register [%s]: %v.", info.Name, err)
+					if force {
+						log.Printf("Delete existing [%s].", info.Name)
+						c.delete()
+					}
 				}
 			}
-			time.Sleep(3 * time.Second)
-			log.Printf("Retrying [%s].", c.svc.Name)
+			if err == nil && info.Scheme == "http" || info.Scheme == "https" {
+				if err = c.refreshProxyAddr(); err != nil {
+					log.Printf("Failed to set proxy_addr [%s]: %v.", info.Name, err)
+				}
+			}
+			// Serve
+			if err == nil {
+				log.Printf("Service [%s] registered.", info.Name)
+
+				go func() {
+					err := c.svc.Serve(c.listener)
+					select {
+					case <-retryCh:
+					case <-c.stopCh:
+					default:
+						log.Printf("Failed when serving [%s]: %v.", info.Name, err)
+						errCh <- err
+					}
+				}()
+				if c.pListener != nil {
+					go func() {
+						err := c.svc.Serve(c.pListener)
+						select {
+						case <-retryCh:
+						case <-c.stopCh:
+						default:
+							log.Printf("Failed when serving [%s]: %v.", info.Name, err)
+							errCh <- err
+						}
+					}()
+				}
+				go func() {
+					if err = c.refreshTimer(retryCh); err != nil {
+						log.Printf("Failed when refreshing [%s]: %v.", info.Name, err)
+						errCh <- err
+					}
+				}()
+
+				err = <-errCh
+				select {
+				case <-c.stopCh:
+					return
+				default:
+				}
+			}
+			if err != nil {
+				time.Sleep(3 * time.Second)
+			}
+			log.Printf("Retrying [%s].", info.Name)
+			// stop on listening
+			close(retryCh)
+			close(errCh)
+			c.listener.Close()
+			c.listener = nil
+			if c.pListener != nil {
+				c.pListener.Close()
+				c.pListener = nil
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *ServiceClient) Stop() error {
+func (c *ServiceClient) Stop(ctx context.Context) error {
 	c.delete()
-	c.stopCh <- struct{}{}
-	return c.svc.Shutdown()
+	close(c.stopCh)
+	return c.svc.Shutdown(ctx)
 }

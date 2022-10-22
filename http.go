@@ -13,54 +13,81 @@ import (
 )
 
 type HTTPService struct {
-	*Service
+	info     ServiceInfo
+	cfg      *ServiceConf
 	serv     *http.Server
 	revproxy *httputil.ReverseProxy
 	proxy    *HTTPProxy
 }
 
-func (s *HTTPService) Serve(l net.Listener) (err error) {
+func NewHTTPService(name string, cfg *ServiceConf) *HTTPService {
+	s := &HTTPService{
+		info: ServiceInfo{
+			Name:   name,
+			Scheme: cfg.Scheme,
+		},
+		cfg: cfg,
+	}
+	if cfg.RemotePort > 0 {
+		s.info.RemoteAddr = fmt.Sprintf("%s:%d", cfg.RemoteAddr, cfg.RemotePort)
+	}
 	s.serv = &http.Server{
-		ConnContext: SaveConnInContext,
+		ConnContext: saveConnInContext,
 		Handler:     s,
 	}
-
 	// HTTP Reverse Proxy
-	if s.Cfg.Backend == "http" || s.Cfg.Backend == "https" {
-		u := &url.URL{
-			Scheme: "http",
-			Host:   fmt.Sprintf("%s:%d", s.Cfg.LocalAddr, s.Cfg.LocalPort),
+	u := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:%d", cfg.LocalAddr, s.cfg.LocalPort),
+	}
+	if cfg.Backend == "https" {
+		u.Scheme = "https"
+	}
+	s.revproxy = httputil.NewSingleHostReverseProxy(u)
+	s.revproxy.ModifyResponse = s.ModifyResponse
+	hosts := strings.Split(cfg.HTTPServiceConf.Hostname, ",")
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if len(host) == 0 {
+			continue
 		}
-		if s.Cfg.Backend == "https" {
-			u.Scheme = "https"
-		}
-		s.revproxy = httputil.NewSingleHostReverseProxy(u)
-		s.revproxy.ModifyResponse = s.ModifyResponse
+		s.info.Hostnames = append(s.info.Hostnames, strings.ToLower(host))
 	}
 
 	// HTTP Proxy protocol
-	if s.Cfg.Backend == "proxy" {
-		s.proxy = NewHTTPProxy(s.Service)
+	if s.cfg.Backend == "proxy" {
+		s.proxy = NewHTTPProxy(s)
 		s.serv.Handler = s.proxy
 	}
+	return s
+}
 
-	if s.Scheme == "http" {
+func (s *HTTPService) GetCfg() *ServiceConf {
+	return s.cfg
+}
+
+func (s *HTTPService) GetInfo() *ServiceInfo {
+	return &s.info
+}
+
+func (s *HTTPService) Serve(l net.Listener) (err error) {
+	if s.info.Scheme == "http" {
 		return s.serv.Serve(l)
 	}
-	return s.serv.ServeTLS(l, s.Cfg.HTTPServiceConf.TLSCert, s.Cfg.HTTPServiceConf.TLSKey)
+	return s.serv.ServeTLS(l, s.cfg.HTTPServiceConf.TLSCert, s.cfg.HTTPServiceConf.TLSKey)
 }
 
 // HTTP Reverse Proxy Handler
 func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.auth(r, w)
-	conn, ok := GetConnUnwarpTLS(r).(SvcInitConn)
+	conn, ok := getConnUnwarpTLS(r).(svcInitConn)
 	if !ok {
-		log.Println("Conn is not SvcInitConn.")
+		log.Println("Conn is not svcInitConn.")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	// Proxied from Server
-	useAltSvc := s.Cfg.AltSvc && SupportAltSvc(r.UserAgent())
+	useAltSvc := s.cfg.AltSvc && supportAltSvc(r.UserAgent())
 	if conn.IsReflected && !useAltSvc {
 		u := r.URL
 		if r.TLS == nil {
@@ -73,7 +100,7 @@ func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Redirect with Cache Control
 		h := w.Header()
 		_, hadCT := h["Content-Type"]
-		h.Set("Cache-Control", fmt.Sprintf("max-age=%ds", int(s.Cfg.HTTPServiceConf.CacheTime)))
+		h.Set("Cache-Control", fmt.Sprintf("max-age=%ds", int(s.cfg.HTTPServiceConf.CacheTime)))
 		h.Set("Location", u.String())
 		if !hadCT && (r.Method == "GET" || r.Method == "HEAD") {
 			h.Set("Content-Type", "text/html; charset=utf-8")
@@ -90,24 +117,24 @@ func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.revproxy.ServeHTTP(w, r)
 }
 
-func (s *HTTPService) Shutdown() error {
-	return s.serv.Shutdown(context.Background())
+func (s *HTTPService) Shutdown(ctx context.Context) error {
+	return s.serv.Shutdown(ctx)
 }
 
 func (s *HTTPService) auth(r *http.Request, w http.ResponseWriter) {
-	if len(s.Cfg.Username)+len(s.Cfg.Password) > 0 {
+	if len(s.cfg.Username)+len(s.cfg.Password) > 0 {
 		u, p, ok := r.BasicAuth()
 		if !ok {
 			log.Println("Error parsing basic auth")
 			w.WriteHeader(401)
 			return
 		}
-		if u != s.Cfg.Username {
+		if u != s.cfg.Username {
 			fmt.Printf("Username provided is incorrect: %s\n", u)
 			w.WriteHeader(401)
 			return
 		}
-		if p != s.Cfg.Password {
+		if p != s.cfg.Password {
 			fmt.Printf("Password provided is incorrect: %s\n", u)
 			w.WriteHeader(401)
 			return
@@ -116,24 +143,24 @@ func (s *HTTPService) auth(r *http.Request, w http.ResponseWriter) {
 }
 
 func (s *HTTPService) ExposedDomainPort() (string, string, error) {
-	host, port, err := net.SplitHostPort(s.ExposedAddr)
+	host, port, err := net.SplitHostPort(s.info.ExposedAddr)
 	if err != nil {
 		return "", "", err
 	}
-	if len(s.Cfg.NIPDomain) > 0 {
-		host = strings.ReplaceAll(host, ".", "-") + "." + s.Cfg.NIPDomain
-	} else if len(s.Cfg.DDNSDomain) >0 {
-		host = s.Cfg.DDNSDomain
+	if len(s.cfg.NIPDomain) > 0 {
+		host = strings.ReplaceAll(host, ".", "-") + "." + s.cfg.NIPDomain
+	} else if len(s.cfg.DDNSDomain) > 0 {
+		host = s.cfg.DDNSDomain
 	}
 	return host, port, nil
 }
 
 func (s *HTTPService) ModifyResponse(r *http.Response) error {
-	conn, ok := GetConnUnwarpTLS(r.Request).(SvcInitConn)
+	conn, ok := getConnUnwarpTLS(r.Request).(svcInitConn)
 	if !ok {
 		return errors.New("conn is not SvcInitConn")
 	}
-	useAltSvc := s.Cfg.AltSvc && SupportAltSvc(r.Request.UserAgent())
+	useAltSvc := s.cfg.AltSvc && supportAltSvc(r.Request.UserAgent())
 	if !conn.IsReflected || !useAltSvc {
 		return nil
 	}
@@ -145,7 +172,7 @@ func (s *HTTPService) ModifyResponse(r *http.Response) error {
 	if u, ok := r.Request.Header["Alt-Used"]; ok && u[0] == addr {
 		return nil
 	}
-	altsvc := fmt.Sprintf("h2=\"%s\"; ma=%d; persist=1", addr, s.Cfg.CacheTime)
+	altsvc := fmt.Sprintf("h2=\"%s\"; ma=%d; persist=1", addr, s.cfg.CacheTime)
 	r.Header.Add("Alt-Svc", altsvc)
 	return nil
 }

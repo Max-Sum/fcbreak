@@ -3,10 +3,12 @@ package fcbreak
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	ua "github.com/mileusna/useragent"
 )
@@ -15,33 +17,55 @@ type contextKey struct {
 	key string
 }
 
-var ConnContextKey = &contextKey{"http-conn"}
-
-func SaveConnInContext(ctx context.Context, c net.Conn) context.Context {
-	return context.WithValue(ctx, ConnContextKey, c)
+var connContextKey = &contextKey{"http-conn"}
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 32*1024)
+	},
 }
 
-func GetConn(r *http.Request) net.Conn {
-	return r.Context().Value(ConnContextKey).(net.Conn)
+func saveConnInContext(ctx context.Context, c net.Conn) context.Context {
+	return context.WithValue(ctx, connContextKey, c)
 }
 
-func GetConnUnwarpTLS(r *http.Request) net.Conn {
-	conn := GetConn(r)
+func getConn(r *http.Request) net.Conn {
+	return r.Context().Value(connContextKey).(net.Conn)
+}
+
+func getConnUnwarpTLS(r *http.Request) net.Conn {
+	conn := getConn(r)
 	if tc, ok := conn.(*tls.Conn); ok {
 		return tc.NetConn()
 	}
 	return conn
 }
 
-type CloseWriter interface {
-	CloseWrite() error
+func transport(rw1, rw2 io.ReadWriter) error {
+	errc := make(chan error, 1)
+	go func() {
+		errc <- copyBuffer(rw1, rw2)
+	}()
+
+	go func() {
+		errc <- copyBuffer(rw2, rw1)
+	}()
+
+	if err := <-errc; err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
-type CloseReader interface {
-	CloseRead() error
+func copyBuffer(dst io.Writer, src io.Reader) error {
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
+	_, err := io.CopyBuffer(dst, src, buf)
+	return err
 }
 
-func SupportAltSvc(useragent string) bool {
+func supportAltSvc(useragent string) bool {
 	a := ua.Parse(useragent)
 	ver_str := strings.Split(a.Version, ".")
 	var v []int
@@ -68,4 +92,18 @@ func SupportAltSvc(useragent string) bool {
 		return true
 	}
 	return false
+}
+
+// onceCloseListener wraps a net.Listener, protecting it from
+// multiple Close calls.
+type onceCloseListener struct {
+	net.Listener
+	once sync.Once
+}
+
+func (oc *onceCloseListener) Close() (err error) {
+	oc.once.Do(func() {
+		err = oc.Listener.Close()
+	})
+	return
 }

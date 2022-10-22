@@ -4,14 +4,18 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Max-Sum/fcbreak"
 	"github.com/akamensky/argparse"
 	"github.com/gin-gonic/gin"
+	proxyproto "github.com/pires/go-proxyproto"
+	"golang.org/x/net/context"
 )
 
 func main() {
@@ -21,7 +25,7 @@ func main() {
 	tlsaddr := parser.String("s", "listen-https", &argparse.Options{Help: "HTTPS Listening Address"})
 	tlscert := parser.String("", "cert", &argparse.Options{Help: "HTTPS Certificate File"})
 	tlskey := parser.String("", "key", &argparse.Options{Help: "HTTPS Private Key File"})
-	proxyproto := parser.Flag("", "proxy-protocol", &argparse.Options{Help: "Listen with proxy protocol"})
+	proxy := parser.Flag("", "proxy-protocol", &argparse.Options{Help: "Listen with proxy protocol"})
 	user := parser.String("u", "user", &argparse.Options{Help: "Authentication Username"})
 	pass := parser.String("p", "pass", &argparse.Options{Help: "Authentication Password"})
 	// Parse input
@@ -33,37 +37,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	gin.SetMode(gin.ReleaseMode)
-	s := fcbreak.NewServer()
+	var tlsconf *tls.Config
+	username := ""
+	password := ""
 	if user != nil {
-		s.User = *user
+		username = *user
 	}
 	if pass != nil {
-		s.Pass = *pass
+		password = *pass
 	}
 	if addr == nil && tlsaddr == nil {
 		fmt.Print(parser.Usage(errors.New("listen address is missing")))
 		os.Exit(1)
-	}
-	useProxyProto := proxyproto != nil && *proxyproto
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		// graceful exit
-		s.Shutdown()
-		os.Exit(0)
-	}()
-	var wg sync.WaitGroup
-	if addr != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := s.ListenAndServe(*addr, nil, useProxyProto)
-			if err != nil {
-				fmt.Print(err)
-			}
-		}()
 	}
 	if tlsaddr != nil {
 		if tlscert == nil || tlskey == nil {
@@ -75,17 +60,61 @@ func main() {
 			fmt.Print(parser.Usage(err))
 			os.Exit(1)
 		}
-		tlsconf := &tls.Config{
+		tlsconf = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		}
-		wg.Add(1)
+	}
+
+	gin.SetMode(gin.ReleaseMode)
+	s := fcbreak.NewServer(username, password, tlsconf)
+	useProxyProto := proxy != nil && *proxy
+
+	errCh := make(chan error)
+
+	if addr != nil {
 		go func() {
-			defer wg.Done()
-			err := s.ListenAndServe(*tlsaddr, tlsconf, useProxyProto)
+			ln, err := net.Listen("tcp", *addr)
 			if err != nil {
-				fmt.Print(err)
+				errCh <- err
+				return
+			}
+			if useProxyProto {
+				ln = &proxyproto.Listener{Listener: ln}
+			}
+			err = s.Serve(ln)
+			if err != nil && err != http.ErrServerClosed {
+				errCh <- err
 			}
 		}()
 	}
-	wg.Wait()
+	if tlsaddr != nil {
+		go func() {
+			ln, err := net.Listen("tcp", *tlsaddr)
+			if err != nil {
+				fmt.Print(err)
+				errCh <- err
+				return
+			}
+			if useProxyProto {
+				ln = &proxyproto.Listener{Listener: ln}
+			}
+			err = s.ServeTLS(ln)
+			if err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+		}()
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-errCh:
+		fmt.Print(err)
+		os.Exit(1)
+	case <-c:
+	}
+	// graceful exit
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	s.Shutdown(ctx)
+	cancel()
 }
