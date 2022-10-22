@@ -430,7 +430,6 @@ func (s *Server) ListenAndServe(addr string, tls *tls.Config, useProxyProto bool
 			return serv.Shutdown(context.Background())
 		default:
 		}
-		log.Println("Accepting")
 		conn, err := l.Accept()
 		if err != nil {
 			return err
