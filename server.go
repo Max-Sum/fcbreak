@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,46 +23,11 @@ var (
 	ErrorServiceNotFound = errors.New("Service is not found")
 )
 
-// ServiceInfo is a service wrapper
-type TimedService struct {
-	*ServiceReflector
-	updateCh chan struct{}
-	closeCh  chan struct{}
-}
-
-func (svc TimedService) Timeout(s *Server) {
-	for {
-		select {
-		case <-time.After(30 * time.Minute):
-			info := svc.GetServiceInfo()
-			log.Printf("Service [%s] Timeout\n", info.Name)
-			if err := s.DelService(info.Name); err != nil {
-				log.Printf("Service [%s] Stop Error: %v\n", info.Name, err)
-			}
-			return
-		case <-svc.updateCh:
-			// Check if the service is ended.
-			select {
-			case _, ok := <-svc.closeCh:
-				if !ok {
-					return
-				}
-			default:
-			}
-		}
-	}
-}
-
-// GetServiceInfoForOutput filters fields for output
-func (svc TimedService) GetServiceInfoForOutput() ServiceInfo {
+// getServiceInfoForOutput filters fields for output
+func getServiceInfoForOutput(svc *ServiceReflector) *ServiceInfo {
 	info := svc.GetServiceInfo()
 	info.ProxyAddr = ""
 	return info
-}
-
-func (svc TimedService) Stop() error {
-	close(svc.closeCh)
-	return svc.ServiceReflector.Stop()
 }
 
 type Server struct {
@@ -71,7 +35,7 @@ type Server struct {
 	Pass       string
 	mutex      sync.RWMutex
 	shutdown   chan struct{}
-	reflectors map[string]TimedService
+	reflectors map[string]*ServiceReflector
 	httpMux    map[string]*ServiceReflector
 	httpsMux   map[string]*ServiceReflector
 }
@@ -82,7 +46,7 @@ func NewServer() *Server {
 		Pass:       "",
 		mutex:      sync.RWMutex{},
 		shutdown:   make(chan struct{}),
-		reflectors: map[string]TimedService{},
+		reflectors: map[string]*ServiceReflector{},
 		httpMux:    map[string]*ServiceReflector{},
 		httpsMux:   map[string]*ServiceReflector{},
 	}
@@ -92,7 +56,29 @@ func NewServer() *Server {
 func (s *Server) addService(svc *ServiceInfo) (*ServiceInfo, error) {
 	if r, found := s.reflectors[svc.Name]; found {
 		info := r.GetServiceInfo()
-		return &info, errors.New("Service [" + svc.Name + "] already exists.")
+		return info, errors.New("service [" + svc.Name + "] already exists")
+	}
+	if svc.Scheme == "http" {
+		for _, host := range svc.Hostnames {
+			if len(host) == 0 {
+				return svc, errors.New("empty host is illegal")
+			}
+			if r, ok := s.httpMux[host]; ok {
+				info := r.GetServiceInfo()
+				return svc, errors.New("service [" + info.Name + "] already registered for the hostname: " + host)
+			}
+		}
+	}
+	if svc.Scheme == "https" {
+		for _, host := range svc.Hostnames {
+			if len(host) == 0 {
+				return svc, errors.New("empty host is illegal")
+			}
+			if r, ok := s.httpsMux[host]; ok {
+				info := r.GetServiceInfo()
+				return svc, errors.New("service [" + info.Name + "] already registered for the hostname: " + host)
+			}
+		}
 	}
 	r := NewServiceReflector(svc)
 	if len(r.info.RemoteAddr) > 0 {
@@ -101,26 +87,16 @@ func (s *Server) addService(svc *ServiceInfo) (*ServiceInfo, error) {
 		}
 		go r.Serve()
 	}
-	s.reflectors[svc.Name] = TimedService{
-		ServiceReflector: r,
-		updateCh:         make(chan struct{}),
-		closeCh:          make(chan struct{}),
-	}
+	s.reflectors[svc.Name] = r
 	if svc.Scheme == "http" {
 		for _, host := range svc.Hostnames {
-			if len(host) > 0 {
-				s.httpMux[host] = r
-			}
+			s.httpMux[host] = r
 		}
 	} else if svc.Scheme == "https" {
 		for _, host := range svc.Hostnames {
-			if len(host) > 0 {
-				s.httpsMux[host] = r
-			}
+			s.httpsMux[host] = r
 		}
 	}
-
-	go s.reflectors[svc.Name].Timeout(s)
 	return svc, nil
 }
 
@@ -149,9 +125,6 @@ func (s *Server) updateService(name string, svc *ServiceInfo) (*ServiceInfo, err
 			log.Printf("Update Service Address: [%s]", svc.Name)
 			oldSvc.UpdateAddr(&svc.ExposedAddr, &svc.ProxyAddr)
 		}
-		// Reset timer
-		oldSvc.updateCh <- struct{}{}
-		return &oldInfo, nil
 	}
 	return nil, ErrorServiceNotFound
 }
@@ -163,15 +136,11 @@ func (s *Server) delService(name string) error {
 		info := svc.GetServiceInfo()
 		if info.Scheme == "http" {
 			for _, host := range info.Hostnames {
-				if len(host) > 0 {
-					delete(s.httpMux, host)
-				}
+				delete(s.httpMux, host)
 			}
 		} else if info.Scheme == "https" {
 			for _, host := range info.Hostnames {
-				if len(host) > 0 {
-					delete(s.httpMux, host)
-				}
+				delete(s.httpMux, host)
 			}
 		}
 		delete(s.reflectors, name)
@@ -199,10 +168,10 @@ func (s *Server) DelService(name string) error {
 }
 
 func (s *Server) GetServices(c *gin.Context) {
-	svcs := make(map[string]ServiceInfo)
+	svcs := make(map[string]*ServiceInfo)
 	s.mutex.RLock()
 	for n, r := range s.reflectors {
-		svcs[n] = r.GetServiceInfoForOutput()
+		svcs[n] = getServiceInfoForOutput(r)
 	}
 	s.mutex.RUnlock()
 	c.IndentedJSON(http.StatusOK, svcs)
@@ -217,19 +186,7 @@ func (s *Server) GetServiceByName(c *gin.Context) {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "service not found"})
 		return
 	}
-	c.IndentedJSON(http.StatusOK, r.GetServiceInfoForOutput())
-}
-
-func getRealAddr(req *http.Request) string {
-	addr := req.RemoteAddr
-	_, port, _ := net.SplitHostPort(addr)
-	if fwaddr := req.Header.Get("X-Real-IP"); fwaddr != "" {
-		return net.JoinHostPort(fwaddr, port)
-	}
-	if fwaddr := req.Header.Get("X-Forwarded-For"); fwaddr != "" {
-		return net.JoinHostPort(strings.Split(fwaddr, ", ")[0], port)
-	}
-	return addr
+	c.IndentedJSON(http.StatusOK, getServiceInfoForOutput(r))
 }
 
 func (s *Server) PostService(c *gin.Context) {
@@ -238,13 +195,17 @@ func (s *Server) PostService(c *gin.Context) {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	svc.ExposedAddr = getRealAddr(c.Request)
+	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Register Service [%s]: %s://%s -> %s://%s", svc.Name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	info, err := s.AddService(svc)
 	if err != nil {
 		log.Printf("Register Service [%s] Error: %v", svc.Name, err)
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
+	}
+	conn := GetConnUnwarpTLS(c.Request)
+	if wc, ok := conn.(*wrappedConn); ok {
+		wc.svc = &svc.Name
 	}
 
 	c.IndentedJSON(http.StatusOK, info)
@@ -257,7 +218,7 @@ func (s *Server) PutService(c *gin.Context) {
 		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	svc.ExposedAddr = getRealAddr(c.Request)
+	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
 	s.mutex.Lock()
 	info, err := s.updateService(name, svc)
@@ -269,6 +230,10 @@ func (s *Server) PutService(c *gin.Context) {
 		log.Printf("Update Service [%s] Error: %v", svc.Name, err)
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
+	}
+	conn := GetConnUnwarpTLS(c.Request)
+	if wc, ok := conn.(*wrappedConn); ok {
+		wc.svc = &svc.Name
 	}
 
 	c.IndentedJSON(http.StatusOK, info)
@@ -284,11 +249,15 @@ func (s *Server) PutServiceExposedAddr(c *gin.Context) {
 		return
 	}
 	info := r.GetServiceInfo()
-	remoteAddr := getRealAddr(c.Request)
+	remoteAddr := c.Request.RemoteAddr
 	if info.ExposedAddr != remoteAddr {
 		r.UpdateAddr(&remoteAddr, nil)
 		info.ExposedAddr = remoteAddr
 		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
+	}
+	conn := GetConnUnwarpTLS(c.Request)
+	if wc, ok := conn.(*wrappedConn); ok {
+		wc.svc = &info.Name
 	}
 	c.IndentedJSON(http.StatusOK, info)
 }
@@ -303,11 +272,15 @@ func (s *Server) PutServiceProxyAddr(c *gin.Context) {
 		return
 	}
 	info := r.GetServiceInfo()
-	remoteAddr := getRealAddr(c.Request)
+	remoteAddr := c.Request.RemoteAddr
 	if info.ProxyAddr != remoteAddr {
 		info.ProxyAddr = remoteAddr
 		log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, info.Scheme, info.RemoteAddr, info.Scheme, info.ExposedAddr)
 		r.UpdateAddr(nil, &remoteAddr)
+	}
+	conn := GetConnUnwarpTLS(c.Request)
+	if wc, ok := conn.(*wrappedConn); ok {
+		wc.svc = &info.Name
 	}
 	c.IndentedJSON(http.StatusOK, info)
 }
@@ -323,13 +296,14 @@ func (s *Server) DeleteService(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, gin.H{"message": "service deleted"})
 }
 
-type bufferPrependConn struct {
+type wrappedConn struct {
 	net.Conn
 	br      *bufio.Reader
 	prepend []byte
+	svc     *string // Tracking service corresponding to conn
 }
 
-func (c *bufferPrependConn) Read(b []byte) (int, error) {
+func (c *wrappedConn) Read(b []byte) (int, error) {
 	if len(c.prepend) > 0 {
 		n := copy(b, c.prepend)
 		if n == len(c.prepend) {
@@ -352,20 +326,16 @@ func (s *Server) handle(conn net.Conn, fl *forwardListener, isTLS bool) {
 		// We assume it is an HTTP request
 		// HTTP sniff
 		readahead, host, err = readHTTPHost(br)
-		log.Printf("[handle] sniffing http: %s -> %s : host: %s",
-			conn.RemoteAddr(), conn.LocalAddr(), host)
 	} else {
 		// TLS sniff
 		readahead, host, err = readClientHelloRecord(br)
-		log.Printf("[handle] sniffing https: %s -> %s : host: %s",
-			conn.RemoteAddr(), conn.LocalAddr(), host)
 	}
 	if err != nil {
 		log.Printf("[handle] %s -> %s : %s",
 			conn.RemoteAddr(), conn.LocalAddr(), err)
 		return
 	}
-	conn = &bufferPrependConn{br: br, Conn: conn, prepend: readahead}
+	conn = &wrappedConn{br: br, Conn: conn, prepend: readahead}
 
 	var r *ServiceReflector
 	found := false
@@ -387,6 +357,24 @@ func (s *Server) handle(conn net.Conn, fl *forwardListener, isTLS bool) {
 	}
 }
 
+func (s *Server) connState(conn net.Conn, state http.ConnState) {
+	if state != http.StateClosed {
+		return
+	}
+	if tc, ok := conn.(*tls.Conn); ok {
+		conn = tc.NetConn()
+	}
+	wc, ok := conn.(*wrappedConn)
+	if !ok || wc.svc == nil {
+		return
+	}
+	name := *wc.svc
+	log.Printf("Service [%s] conn closed, Deleting.", name)
+	if err := s.DelService(name); err != nil {
+		log.Printf("Delete Service [%s] Error: %v", name, err)
+	}
+}
+
 func (s *Server) ListenAndServe(addr string, tls *tls.Config, useProxyProto bool) error {
 	select {
 	case _, ok := <-s.shutdown:
@@ -402,6 +390,8 @@ func (s *Server) ListenAndServe(addr string, tls *tls.Config, useProxyProto bool
 		Handler:     router,
 		IdleTimeout: 30 * time.Minute,
 		TLSConfig:   tls,
+		ConnContext: SaveConnInContext,
+		ConnState:   s.connState,
 	}
 	var r *gin.RouterGroup
 	if s.User != "" && s.Pass != "" {

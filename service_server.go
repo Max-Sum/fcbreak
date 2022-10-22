@@ -138,17 +138,19 @@ func (r *ServiceReflector) Running() bool {
 	return r.l != nil
 }
 
-func (r *ServiceReflector) Rename(name string) ServiceInfo {
+func (r *ServiceReflector) Rename(name string) *ServiceInfo {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.info.Name = name
-	return r.info
+	info := r.info
+	return &info
 }
 
-func (r *ServiceReflector) GetServiceInfo() ServiceInfo {
+func (r *ServiceReflector) GetServiceInfo() *ServiceInfo {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	return r.info
+	info := r.info
+	return &info
 }
 
 func (r *ServiceReflector) UpdateAddr(exposedAddr *string, proxyAddr *string) {
