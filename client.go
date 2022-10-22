@@ -128,7 +128,7 @@ func (c *ServiceClient) refreshAddr() error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.pClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
