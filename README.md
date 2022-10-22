@@ -47,7 +47,7 @@ remote_port = 8080
 
 #### 运行
 ```
-docker run -n fcbreak --host gzmaxsum/fcbreak-client -c /config.ini:<配置文件路径>:ro -f
+docker run -n fcbreak --host -v /config.ini:<配置文件路径>:ro gzmaxsum/fcbreak-client
 ```
 
 #### 使用
@@ -283,7 +283,7 @@ docker run -n fcbreak --host gzmaxsum/fcbreak-server  \
 
 Docker 客户端：
 ```
-docker run -n fcbreak --host gzmaxsum/fcbreak-client -c /config.ini:<配置文件路径>:ro [-f]
+docker run -n fcbreak --host -v /config.ini:<配置文件路径>:ro gzmaxsum/fcbreak-client
 ```
 
 客户端配置文件:
