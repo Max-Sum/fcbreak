@@ -242,7 +242,7 @@ func (s *Server) PostService(c *gin.Context) {
 		return
 	}
 	s.labelConn(c.Request, info.Name)
-	c.IndentedJSON(http.StatusOK, info)
+	c.IndentedJSON(http.StatusCreated, info)
 }
 
 func (s *Server) PutService(c *gin.Context) {
@@ -254,9 +254,11 @@ func (s *Server) PutService(c *gin.Context) {
 	}
 	svc.ExposedAddr = c.Request.RemoteAddr
 	log.Printf("Update Service [%s]: %s://%s -> %s://%s", name, svc.Scheme, svc.RemoteAddr, svc.Scheme, svc.ExposedAddr)
+	status := http.StatusOK
 	s.mutex.Lock()
 	info, err := s.updateService(c.Request.Context(), name, svc)
 	if err == ErrorServiceNotFound {
+		status = http.StatusCreated
 		info, err = s.addService(svc)
 	}
 	s.mutex.Unlock()
@@ -266,7 +268,7 @@ func (s *Server) PutService(c *gin.Context) {
 		return
 	}
 	s.labelConn(c.Request, info.Name)
-	c.IndentedJSON(http.StatusOK, info)
+	c.IndentedJSON(status, info)
 }
 
 func (s *Server) PutServiceExposedAddr(c *gin.Context) {
