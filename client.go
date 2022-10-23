@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	reuse "github.com/libp2p/go-reuseport"
@@ -258,9 +259,11 @@ func (c *ServiceClient) Start(force bool) error {
 				}
 			}
 			// Serve
+			wg := sync.WaitGroup{} // Wait for all serving routines
 			if err == nil {
 				log.Printf("Service [%s] registered.", info.Name)
 
+				wg.Add(1)
 				go func() {
 					err := c.svc.Serve(c.listener)
 					select {
@@ -270,8 +273,10 @@ func (c *ServiceClient) Start(force bool) error {
 						log.Printf("Failed when serving [%s]: %v.", info.Name, err)
 						errCh <- err
 					}
+					wg.Done()
 				}()
 				if c.pListener != nil {
+					wg.Add(1)
 					go func() {
 						err := c.svc.Serve(c.pListener)
 						select {
@@ -281,13 +286,16 @@ func (c *ServiceClient) Start(force bool) error {
 							log.Printf("Failed when serving [%s]: %v.", info.Name, err)
 							errCh <- err
 						}
+						wg.Done()
 					}()
 				}
+				wg.Add(1)
 				go func() {
 					if err = c.refreshTimer(retryCh); err != nil {
 						log.Printf("Failed when refreshing [%s]: %v.", info.Name, err)
 						errCh <- err
 					}
+					wg.Done()
 				}()
 
 				err = <-errCh
@@ -298,20 +306,24 @@ func (c *ServiceClient) Start(force bool) error {
 				}
 			}
 			if err != nil {
+				log.Printf("Error on [%s]: %v", info.Name, err)
 				time.Sleep(3 * time.Second)
 			}
-			log.Printf("Retrying [%s].", info.Name)
 			// stop on listening
 			close(retryCh)
 			close(errCh)
 			c.listener.Close()
 			c.listener = nil
-			c.client.CloseIdleConnections()
 			if c.pListener != nil {
 				c.pListener.Close()
 				c.pListener = nil
+			}
+			wg.Wait()
+			c.client.CloseIdleConnections()
+			if c.pListener != nil {
 				c.pClient.CloseIdleConnections()
 			}
+			log.Printf("Retrying [%s].", info.Name)
 		}
 	}()
 
