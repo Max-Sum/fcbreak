@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -65,14 +66,16 @@ func (hp *HTTPProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (hp *HTTPProxy) InfoHandler(rw http.ResponseWriter, req *http.Request) {
+	info := hp.s.GetInfo()
+	cfg := hp.s.GetCfg()
 	clashTemp := `proxies:
   - {name: %[1]s, type: http, server: %[3]s, port: %[4]s, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}
   - {name: %[1]s (via Server), type: http, server: %[5]s, port: %[6]s, tls: %[7]t, sni: %[2]s, username: %[8]s, password: %[9]s, skip-cert-verify: %[10]t}`
 	quanxTemp := `http=%[3]s:%[4]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s
 http=%[5]s:%[6]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s, tls-verification=%[10]t, fast-open=false, udp-relay=false, tag=%[1]s (via Server)`
-	name := hp.s.GetCfg().Name
-	scheme := hp.s.GetCfg().Scheme
-	eip, eportStr, err := hp.s.ExposedDomainPort()
+	name := info.Name
+	scheme := info.Scheme
+	eip, eportStr, err := net.SplitHostPort(info.ExposedAddr)
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
 		return
@@ -90,9 +93,9 @@ http=%[5]s:%[6]s, username=%[8]s, password=%[9]s, over-tls=%[7]t, tls-host=%[2]s
 			rportStr = "80"
 		}
 	}
-	user := hp.s.GetCfg().Username
-	pass := hp.s.GetCfg().Password
-	tlsInsecure := hp.s.GetCfg().ProxyInsecure
+	user := cfg.Username
+	pass := cfg.Password
+	tlsInsecure := cfg.ProxyInsecure
 	switch req.URL.Path {
 	case "/clash":
 		fmt.Fprintf(rw, clashTemp, name, rip, eip, eportStr, rip, rportStr, tls, user, pass, tlsInsecure)
