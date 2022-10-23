@@ -228,6 +228,7 @@ func (c *ServiceClient) Start(force bool) error {
 	}
 	// Retry Loop
 	go func() {
+		listenProxy := info.Scheme == "http" || info.Scheme == "https"
 		for {
 			var err error
 			retryCh := make(chan struct{}) // channel to see if an retry is triggered
@@ -238,7 +239,7 @@ func (c *ServiceClient) Start(force bool) error {
 					log.Printf("Failed to listen for [%s]: %v.", info.Name, err)
 				}
 			}
-			if err == nil && info.Scheme == "http" || info.Scheme == "https" {
+			if err == nil && listenProxy {
 				if c.pListener, err = listenProxyForService(c.svc); err != nil {
 					log.Printf("Failed to listen for [%s]: %v.", info.Name, err)
 				}
@@ -249,14 +250,18 @@ func (c *ServiceClient) Start(force bool) error {
 					log.Printf("Failed to register [%s]: %v.", info.Name, err)
 					if force {
 						log.Printf("Delete existing [%s].", info.Name)
-						c.delete()
-						if err = c.register(); err != nil {
-							log.Printf("Failed to register [%s]: %v.", info.Name, err)
+						if err := c.delete(); err != nil {
+							log.Printf("Failed to delete [%s]: %v.", info.Name, err)
+						} else {
+							if err = c.register(); err != nil {
+								log.Printf("Failed to register [%s]: %v.", info.Name, err)
+							}
 						}
 					}
 				}
 			}
-			if err == nil && info.Scheme == "http" || info.Scheme == "https" {
+			// Update proxy addr
+			if err == nil && listenProxy {
 				if err = c.refreshProxyAddr(); err != nil {
 					log.Printf("Failed to set proxy_addr [%s]: %v.", info.Name, err)
 				}
@@ -278,7 +283,7 @@ func (c *ServiceClient) Start(force bool) error {
 					}
 					wg.Done()
 				}()
-				if c.pListener != nil {
+				if listenProxy {
 					wg.Add(1)
 					go func() {
 						err := c.svc.Serve(c.pListener)
@@ -314,15 +319,17 @@ func (c *ServiceClient) Start(force bool) error {
 			// stop on listening
 			close(retryCh)
 			close(errCh)
-			c.listener.Close()
-			c.listener = nil
+			if c.listener != nil {
+				c.listener.Close()
+				c.listener = nil
+			}
 			if c.pListener != nil {
 				c.pListener.Close()
 				c.pListener = nil
 			}
 			wg.Wait()
 			c.client.CloseIdleConnections()
-			if info.Scheme == "http" || info.Scheme == "https" {
+			if listenProxy {
 				c.pClient.CloseIdleConnections()
 			}
 			log.Printf("Retrying [%s].", info.Name)
