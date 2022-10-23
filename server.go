@@ -156,6 +156,7 @@ func (s *Server) updateService(ctx context.Context, name string, svc *ServiceInf
 			log.Printf("Update Service Address: [%s]", svc.Name)
 			oldSvc.UpdateAddr(&svc.ExposedAddr, &svc.ProxyAddr)
 		}
+		return oldSvc.GetServiceInfo(), nil
 	}
 	return nil, ErrorServiceNotFound
 }
