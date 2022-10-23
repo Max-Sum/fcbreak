@@ -250,6 +250,9 @@ func (c *ServiceClient) Start(force bool) error {
 					if force {
 						log.Printf("Delete existing [%s].", info.Name)
 						c.delete()
+						if err = c.register(); err != nil {
+							log.Printf("Failed to register [%s]: %v.", info.Name, err)
+						}
 					}
 				}
 			}
@@ -306,7 +309,6 @@ func (c *ServiceClient) Start(force bool) error {
 				}
 			}
 			if err != nil {
-				log.Printf("Error on [%s]: %v", info.Name, err)
 				time.Sleep(3 * time.Second)
 			}
 			// stop on listening
