@@ -306,9 +306,11 @@ func (c *ServiceClient) Start(force bool) error {
 			close(errCh)
 			c.listener.Close()
 			c.listener = nil
+			c.client.CloseIdleConnections()
 			if c.pListener != nil {
 				c.pListener.Close()
 				c.pListener = nil
+				c.pClient.CloseIdleConnections()
 			}
 		}
 	}()
