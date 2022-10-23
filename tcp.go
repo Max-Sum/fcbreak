@@ -46,6 +46,10 @@ func (s *TCPService) GetInfo() *ServiceInfo {
 	return &s.info
 }
 
+func (s *TCPService) SetExposedAddr(addr string) {
+	s.info.ExposedAddr = addr
+}
+
 func (s *TCPService) Serve(l net.Listener) (err error) {
 	if s.shuttingDown() {
 		return errors.New("cannot serve on closed server")

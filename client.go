@@ -118,7 +118,12 @@ func (c *ServiceClient) refresh() error {
 	if resp.StatusCode != http.StatusOK {
 		return errors.New("Refresh [" + info.Name + "] error: " + string(by))
 	}
-	return json.Unmarshal(by, info)
+	rcvInfo := ServiceInfo{}
+	if err := json.Unmarshal(by, &rcvInfo); err != nil {
+		return err
+	}
+	c.svc.SetExposedAddr(rcvInfo.ExposedAddr)
+	return nil
 }
 
 func (c *ServiceClient) refreshAddr() error {
@@ -141,7 +146,12 @@ func (c *ServiceClient) refreshAddr() error {
 	if resp.StatusCode != http.StatusOK {
 		return errors.New("Refresh [" + info.Name + "]'s address error: " + string(by))
 	}
-	return json.Unmarshal(by, info)
+	rcvInfo := ServiceInfo{}
+	if err := json.Unmarshal(by, &rcvInfo); err != nil {
+		return err
+	}
+	c.svc.SetExposedAddr(rcvInfo.ExposedAddr)
+	return nil
 }
 
 func (c *ServiceClient) refreshProxyAddr() error {
@@ -164,7 +174,7 @@ func (c *ServiceClient) refreshProxyAddr() error {
 	if resp.StatusCode != http.StatusOK {
 		return errors.New("Refresh [" + info.Name + "]'s Proxy address error: " + string(by))
 	}
-	return json.Unmarshal(by, info)
+	return nil
 }
 
 func (c *ServiceClient) delete() error {

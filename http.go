@@ -70,6 +70,10 @@ func (s *HTTPService) GetInfo() *ServiceInfo {
 	return &s.info
 }
 
+func (s *HTTPService) SetExposedAddr(addr string) {
+	s.info.ExposedAddr = addr
+}
+
 func (s *HTTPService) Serve(l net.Listener) (err error) {
 	if s.info.Scheme == "http" {
 		return s.serv.Serve(l)

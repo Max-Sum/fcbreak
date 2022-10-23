@@ -32,6 +32,7 @@ type Service interface {
 	Shutdown(context.Context) error
 	GetCfg() *ServiceConf
 	GetInfo() *ServiceInfo
+	SetExposedAddr(addr string)
 }
 
 // listenForService listen for common connections
