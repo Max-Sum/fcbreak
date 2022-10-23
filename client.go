@@ -320,7 +320,7 @@ func (c *ServiceClient) Start(force bool) error {
 			}
 			wg.Wait()
 			c.client.CloseIdleConnections()
-			if c.pListener != nil {
+			if info.Scheme == "http" || info.Scheme == "https" {
 				c.pClient.CloseIdleConnections()
 			}
 			log.Printf("Retrying [%s].", info.Name)
