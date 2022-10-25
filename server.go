@@ -39,9 +39,9 @@ type Server struct {
 	httpMux       map[string]*ServiceReflector
 	httpsMux      map[string]*ServiceReflector
 	connGroup     sync.WaitGroup
+	listenerGroup sync.WaitGroup
 	conns         map[*net.Conn]struct{}
 	listeners     map[*net.Listener]struct{}
-	listenerGroup sync.WaitGroup
 }
 
 func NewServer(user, pass string, tlsConf *tls.Config) *Server {

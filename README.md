@@ -294,6 +294,7 @@ server = http://<user>:<pass>@<server host>:<server port>
                        # 服务器的API地址，可以设置https或http
 heartbeat_interval = 5 # [可选] 心跳间隔，保持到服务器的连接，默认为30s。
 skip_verify = false    # [可选] 跳过TLS检测，如果服务器使用的是自签证书，可以使用该项。
+request_timeout = 5    # [可选] 访问API的时间限制，默认为5s。
 
 [ssh]                  # 一个section为一个对外暴露的服务
 type = tcp             # 服务类型，目前支持tcp/http/https

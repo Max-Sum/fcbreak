@@ -33,7 +33,7 @@ func NewServiceClient(svc Service, clientCfg *ClientCommonConf) *ServiceClient {
 		svc: svc,
 		cfg: clientCfg,
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: time.Duration(clientCfg.RequestTimeout * int64(time.Second)),
 		},
 		stopCh: make(chan struct{}),
 	}
@@ -51,7 +51,7 @@ func NewServiceClient(svc Service, clientCfg *ClientCommonConf) *ServiceClient {
 	}
 	if c.listenProxy() {
 		c.pClient = &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: time.Duration(clientCfg.RequestTimeout * int64(time.Second)),
 			Transport: &http.Transport{
 				Proxy:               nil,
 				DialContext:         c.DialProxyAddr,
@@ -297,13 +297,29 @@ func (c *ServiceClient) refreshAPI(ctx context.Context) error {
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialBindAddr(_ context.Context, network string, addr string) (net.Conn, error) {
-	return reuse.Dial("tcp", c.listener.Addr().String(), addr)
+func (c *ServiceClient) DialBindAddr(ctx context.Context, network string, addr string) (net.Conn, error) {
+	nla, err := reuse.ResolveAddr(network, c.listener.Addr().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve local addr: %w", err)
+	}
+	d := net.Dialer{
+		Control:   reuse.Control,
+		LocalAddr: nla,
+	}
+	return d.DialContext(ctx, network, addr)
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialProxyAddr(_ context.Context, network string, addr string) (net.Conn, error) {
-	return reuse.Dial("tcp", c.pListener.Addr().String(), addr)
+func (c *ServiceClient) DialProxyAddr(ctx context.Context, network string, addr string) (net.Conn, error) {
+	nla, err := reuse.ResolveAddr(network, c.pListener.Addr().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve local addr: %w", err)
+	}
+	d := net.Dialer{
+		Control:   reuse.Control,
+		LocalAddr: nla,
+	}
+	return d.DialContext(ctx, network, addr)
 }
 
 func (c *ServiceClient) Start(force bool) error {

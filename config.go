@@ -14,6 +14,9 @@ type ClientCommonConf struct {
 	// before the connection is terminated, in seconds. It is not recommended
 	// to change this value. By default, this value is 90.
 	HeartbeatTimeout int64 `ini:"heartbeat_timeout" json:"heartbeat_timeout"`
+	// RequestTimeout specifies the timeout for any API request in seconds.
+	// By default, this value is 5.
+	RequestTimeout int64 `ini:"request_timeout" json:"request_timeout"`
 }
 
 func GetDefaultClientConf() ClientCommonConf {
@@ -22,6 +25,7 @@ func GetDefaultClientConf() ClientCommonConf {
 		SkipTLSVerify:     false,
 		HeartbeatInterval: 30,
 		HeartbeatTimeout:  90,
+		RequestTimeout:    5,
 	}
 }
 
