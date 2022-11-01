@@ -263,7 +263,7 @@ func (c *ServiceClient) serve(ctx context.Context) (err error) {
 	return err
 }
 
-func (c *ServiceClient) refreshAPI(ctx context.Context) error {
+func (c *ServiceClient) register() error {
 	info := c.svc.GetInfo()
 	// Register
 	if err := c.refresh(); err != nil {
@@ -277,6 +277,10 @@ func (c *ServiceClient) refreshAPI(ctx context.Context) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (c *ServiceClient) refreshAPI(ctx context.Context) error {
 	for {
 		select {
 		case <-time.After(time.Duration(c.cfg.HeartbeatInterval) * time.Second):
@@ -355,14 +359,26 @@ func (c *ServiceClient) Start(force bool) error {
 			go func() {
 				// retry api operations without restarting listen
 				defer c.wg.Done()
+				errCount := 0
 				for {
-					c.refreshAPI(retryCtx)
+					err := c.register()
+					if err != nil {
+						errCount += 1
+					} else {
+						errCount = 0
+						c.refreshAPI(retryCtx)
+					}
 					select {
 					case <-c.stopCh:
 						return
 					case <-retryCtx.Done():
 						return
 					default:
+					}
+					if errCount >= 5 {
+						log.Printf("Too many error on register [%s], restarting.", info.Name)
+						errCh <- err
+						return
 					}
 					time.Sleep(3 * time.Second)
 				}
