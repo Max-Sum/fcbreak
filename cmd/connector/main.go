@@ -131,6 +131,9 @@ func UpdateIPTables(svcs map[string]*fcbreak.ServiceInfo, serverHostname string)
 	}
 	defer ipt.ClearAndDeleteChain("nat", TempChainName)
 	for name, svc := range svcs {
+		if svc.RemoteAddr == "" {
+			continue
+		}
 		remote_ip, remote_port, err := net.SplitHostPort(svc.RemoteAddr)
 		if err != nil {
 			return err
