@@ -301,7 +301,11 @@ func (c *ServiceClient) refreshAPI(ctx context.Context) error {
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialBindAddr(ctx context.Context, network string, addr string) (net.Conn, error) {
+func (c *ServiceClient) DialBindAddr(ctx context.Context, _ string, addr string) (net.Conn, error) {
+	network := "tcp4"
+	if c.cfg.UseIPv6 {
+		network = "tcp6"
+	}
 	nla, err := reuse.ResolveAddr(network, c.listener.Addr().String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve local addr: %w", err)
@@ -314,7 +318,11 @@ func (c *ServiceClient) DialBindAddr(ctx context.Context, network string, addr s
 }
 
 // Use the binded address to dial
-func (c *ServiceClient) DialProxyAddr(ctx context.Context, network string, addr string) (net.Conn, error) {
+func (c *ServiceClient) DialProxyAddr(ctx context.Context, _ string, addr string) (net.Conn, error) {
+	network := "tcp4"
+	if c.cfg.UseIPv6 {
+		network = "tcp6"
+	}
 	nla, err := reuse.ResolveAddr(network, c.pListener.Addr().String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve local addr: %w", err)

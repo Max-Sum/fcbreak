@@ -17,6 +17,9 @@ type ClientCommonConf struct {
 	// RequestTimeout specifies the timeout for any API request in seconds.
 	// By default, this value is 5.
 	RequestTimeout int64 `ini:"request_timeout" json:"request_timeout"`
+	// UseIPv6 specifies if the connection to server should use IPv6 instead of IPv4.
+	// By default, this value is false.
+	UseIPv6 bool `ini:"use_ipv6" json:"use_ipv6"`
 }
 
 func GetDefaultClientConf() ClientCommonConf {
@@ -26,6 +29,7 @@ func GetDefaultClientConf() ClientCommonConf {
 		HeartbeatInterval: 30,
 		HeartbeatTimeout:  90,
 		RequestTimeout:    5,
+		UseIPv6:           false,
 	}
 }
 

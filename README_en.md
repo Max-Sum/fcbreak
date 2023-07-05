@@ -36,6 +36,7 @@ Client Config File:
 server = http://<user>:<pass>@<server host>:<server port> # Server API address
 heartbeat_interval = 15 # [Optional] Heartbeat frequency
 skip_verify = false    # [Optional] Skip TLS certification verification, default false.
+use_ipv6 = false       # [Optional] Use IPv6 to connect to server, default false.
 
 [http_service]         # Name of exposing service
 type = http            # Type of service, support tcp/http/https
