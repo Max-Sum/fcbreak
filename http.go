@@ -51,6 +51,9 @@ func NewHTTPService(name string, cfg *ServiceConf) *HTTPService {
 		if len(host) == 0 {
 			continue
 		}
+		if !verifyHostname(host) {
+			log.Fatalf("host %s is illegal, host can contains no or one * at the beginning or at the ending", host)
+		}
 		s.info.Hostnames = append(s.info.Hostnames, strings.ToLower(host))
 	}
 

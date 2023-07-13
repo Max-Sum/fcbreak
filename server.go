@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,6 +94,9 @@ func (s *Server) addService(svc *ServiceInfo) (*ServiceInfo, error) {
 		for _, host := range svc.Hostnames {
 			if len(host) == 0 {
 				return svc, errors.New("empty host is illegal")
+			}
+			if ! verifyHostname(host) {
+				return svc, errors.New("host is illegal, host can contains no or one * at the beginning or at the ending")
 			}
 			if r, ok := s.httpMux[host]; ok {
 				info := r.GetServiceInfo()
@@ -368,16 +372,7 @@ func (s *Server) handle(conn net.Conn, fl *forwardListener, isTLS bool) {
 	}
 	conn = &wrappedConn{br: br, Conn: conn, prepend: readahead}
 
-	var r *ServiceReflector
-	found := false
-	if len(host) > 0 {
-		if !isTLS {
-			r, found = s.httpMux[host]
-		} else {
-			r, found = s.httpsMux[host]
-		}
-	}
-	if found {
+	if r, found := s.matchHost(host, isTLS); found {
 		err = r.Handle(conn)
 		if err != nil {
 			log.Printf("[service] %s -> %s : %s",
@@ -387,6 +382,41 @@ func (s *Server) handle(conn net.Conn, fl *forwardListener, isTLS bool) {
 	} else {
 		fl.Forward(conn)
 	}
+}
+
+func (s *Server) matchHost(host string, isTLS bool) (*ServiceReflector, bool) {
+	if len(host) == 0 {
+		return nil, false
+	}
+	var mux *map[string]*ServiceReflector
+	if !isTLS {
+		mux = &s.httpMux
+	} else {
+		mux = &s.httpsMux
+	}
+	// Match Exact hostname
+	if r, ok := (*mux)[host]; ok {
+		return r, true
+	}
+	// Match leading asterisk
+	for key, reflector := range (*mux) {
+		if !strings.HasPrefix(key, "*") {
+			continue
+		}
+		if strings.HasSuffix(host, key[1:]) {
+			return reflector, true
+		}
+	}
+	// Match trailing asterisk
+	for key, reflector := range (*mux) {
+		if !strings.HasSuffix(key, "*") {
+			continue
+		}
+		if strings.HasPrefix(host, key[:len(key)-1]) {
+			return reflector, true
+		}
+	}
+	return nil, false
 }
 
 func (s *Server) connState(conn net.Conn, state http.ConnState) {

@@ -154,12 +154,13 @@ NIP的服务器需要另外部署，参见[sslip.io](https://sslip.io/)。
 每一个HTTP服务都占据一个端口很占用端口空间，可以配置虚拟服务器，共享API的端口。
 https、http均可使用。
 但如果使用https服务则需要开启https API端口，使用http服务则需要开启http API端口。两种API接口可以同时打开。
+Hostname可以在开始或末尾存在一个通配符*，按照 完全匹配 > 开头的通配符 > 结尾的通配符 的顺序匹配。
 ```
 [http] # 暴露http服务
 type = http
 local_port = 80
 #remote_port = 8080   # 配置虚拟服务器时可以不绑定端口
-http_hostname = svc.example.com, svc.foobar.com
+http_hostname = svc.example.com, svc.foobar.com, \*.example.com, foobar.org.\*
 
 [https_http] # 暴露https服务，后端为http
 type = https
@@ -168,7 +169,7 @@ remote_port = 8443
 http_backend = http
 https_crt = <公钥位置>
 https_key = <私钥位置>
-http_hostname = svc.example.com, svc.foobar.com
+http_hostname = svc.example.com, svc.foobar.com, \*.example.com, foobar.org.\*
 ```
 另外还需设置`svc.example.com`和`svc.foobar.com`指向服务器地址。
 
@@ -314,9 +315,10 @@ local_port = 5000      # 服务的内网端口
 remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
 remote_port = 5000     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
 # 下面为http/https支持的参数
-http_hostname = srv.example.com, srv.foobar.com
+http_hostname = srv.example.com, srv.foobar.com, \*.example.com, foobar.org.\*
                        # [可选] 注册虚拟服务。注册后可以在服务器监听的HTTP端口访问该网站。
                        # 如服务器监听于:8080，则可以访问srv.example.com:8080。需要将域名指向服务器。
+                       # 可以在开始或末尾存在一个通配符。
 http_ddns_domain = ddns.example.com
                        # [可选] DDNS域名，如果设置，则转跳时会跳至该域名而不是IP。DDNS需要另外设置。
 http_nip_domain = ip.example.com
@@ -336,9 +338,10 @@ bind_ip = 0.0.0.0      # [可选] 在本机绑定的IP，默认为0.0.0.0。
 bind_port = 5001       # [可选] 在本机绑定的端口，默认随机设置。
 remote_ip = 0.0.0.0    # [可选] 在服务器上暴露的IP，0.0.0.0则为所有IPv4。默认为所有IP。
 remote_port = 5001     # [可选] 在服务器上暴露的端口。如果不设置，则不会在服务器暴露端口。
-http_hostname = srv.example.com, srv.foobar.com
+http_hostname = srv.example.com, srv.foobar.com, \*.example.com, foobar.org.\*
                        # [可选] 注册虚拟服务。注册后可以在服务器监听的HTTP端口访问该网站。
                        # 如服务器监听于:8080，则可以访问srv.example.com:8080。需要将域名指向服务器。
+                       # 可以在开始或末尾存在一个通配符。
 http_ddns_domain = ddns.example.com
                        # [可选] DDNS域名，如果设置，则转跳时会跳至该域名而不是IP。DDNS需要另外设置。
 http_nip_domain = ip.example.com

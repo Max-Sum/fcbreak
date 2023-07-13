@@ -44,9 +44,10 @@ local_ip = 127.0.0.1   # LAN IP of the service
 local_port = 5000      # LAN Port of the service
 remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
 remote_port = 5000     # [Optional] Listening Port, no remote port is assigned if not defined
-http_hostname = srv.example.com, srv.foobar.com
+http_hostname = srv.example.com, srv.foobar.com, \*.example.com, foobar.org.\*
                        # [Optional] Add a hostname to server, service will be accessible on 
                                     http://<server host>:<server http port> with designated hostnames.
+                                    Hostnames can start or end with *.
 http_ddns_domain = ddns.example.com
                        # [Optional] Set DDNS domain. If set, redirection will go to the domain name instead of IP.
                           DDNS need to be updated using other programs.
@@ -62,9 +63,10 @@ local_ip = 127.0.0.1   # LAN IP of the service
 local_port = 5001      # LAN Port of the service
 remote_ip = 0.0.0.0    # [Optional] Listening IP on your server, optional, default to all IP
 remote_port = 5001     # [Optional] Listening Port, no remote port is assigned if not defined
-http_hostname = srv.example.com, srv.foobar.com
+http_hostname = srv.example.com, srv.foobar.com, \*.example.com, foobar.org.\*
                        # [Optional] Add a hostname to server, service will be accessible on
                                     https://<server host>:<server https port> with designated hostnames.
+                                    Hostnames can start or end with *.
 http_backend=https     # [Optional] HTTP Backend (http/https/proxy), default to http
 https_crt = /certs/example.com.crt # TLS Certificate
 https_key = /certs/example.com.key # TLS Private Key

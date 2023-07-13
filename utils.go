@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,4 +107,16 @@ func (oc *onceCloseListener) Close() (err error) {
 		err = oc.Listener.Close()
 	})
 	return
+}
+
+func verifyHostname(hostname string) bool {
+	var ok bool
+	if strings.HasPrefix(hostname, "*") {
+		ok, _ = regexp.MatchString(`^[a-zA-Z0-9\.]+$`, hostname[1:])
+	} else if strings.HasSuffix(hostname, "*") {
+		ok, _ = regexp.MatchString(`^[a-zA-Z0-9\.]+$`, hostname[:len(hostname)-1])
+	} else {
+		ok, _ = regexp.MatchString(`^[a-zA-Z0-9\.]+$`, hostname)
+	}
+	return ok
 }
