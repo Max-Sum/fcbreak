@@ -11,6 +11,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path"
 	"sync"
 	"time"
 
@@ -277,6 +279,10 @@ func (c *ServiceClient) register() error {
 			return err
 		}
 	}
+	err := c.writeServiceInfo()
+	if err != nil {
+		log.Printf("Error Writing Service Info [%s]: %v.", info.Name, err)
+	}
 	return nil
 }
 
@@ -292,12 +298,28 @@ func (c *ServiceClient) refreshAPI(ctx context.Context) error {
 					return err
 				}
 			}
+			err := c.writeServiceInfo()
+			if err != nil {
+				log.Printf("Error Writing Service Info [%s]: %v.", c.svc.GetCfg().Name, err)
+			}
 		case <-c.stopCh:
 			return nil
 		case <-ctx.Done():
 			return nil
 		}
 	}
+}
+
+func (c *ServiceClient) writeServiceInfo() error {
+	if len(c.cfg.ServicesInfoPath) == 0 {
+		return nil
+	}
+	info, err := json.MarshalIndent(c.svc.GetInfo(), "", " ")
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(path.Join(c.cfg.ServicesInfoPath, c.svc.GetCfg().Name), info, 0644)
+	return err
 }
 
 // Use the binded address to dial
@@ -420,6 +442,9 @@ func (c *ServiceClient) Stop(ctx context.Context) error {
 	c.client.CloseIdleConnections()
 	if c.pClient != nil {
 		c.pClient.CloseIdleConnections()
+	}
+	if len(c.cfg.ServicesInfoPath) > 0 {
+		os.Remove(path.Join(c.cfg.ServicesInfoPath, c.svc.GetCfg().Name))
 	}
 	return c.svc.Shutdown(ctx)
 }

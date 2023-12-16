@@ -23,6 +23,7 @@ TCP打洞原理与UDP打洞类似。但Fullcone的大部分设备都不会对流
 ## 快速部署
 
 ### 服务端
+
 ```
 docker run -n fcbreak --host gzmaxsum/fcbreak-server -l :7000 
 ```
@@ -30,6 +31,7 @@ docker run -n fcbreak --host gzmaxsum/fcbreak-server -l :7000
 ### 客户端
 
 #### 配置文件
+
 ```
 [common]
 server = http://<服务器地址>:7000
@@ -46,14 +48,16 @@ remote_port = 8080
 ```
 
 #### 运行
+
 ```
 docker run -n fcbreak --host -v /config.ini:<配置文件路径>:ro gzmaxsum/fcbreak-client
 ```
 
 #### 使用
-运行成功访问：`http://<服务器地址>:8080`，会自动转跳到`http://<公网IP>:<随机端口>`。此时即可直连使用服务。
 
-TCP服务如果连接`<服务器地址>:2200`则会由服务器中转。您可以访问`http://<服务器地址>:7000/services`，查看当前所有注册的服务及其对应的端口。
+运行成功访问：`http://<服务器地址>:8080`，会自动转跳到 `http://<公网IP>:<随机端口>`。此时即可直连使用服务。
+
+TCP服务如果连接 `<服务器地址>:2200`则会由服务器中转。您可以访问 `http://<服务器地址>:7000/services`，查看当前所有注册的服务及其对应的端口。
 
 ```
 {
@@ -75,8 +79,10 @@ TCP服务如果连接`<服务器地址>:2200`则会由服务器中转。您可�
 ## 进阶功能
 
 ### 保护API
+
 API直接暴露在公网且没有密码保护并不安全。通过设置证书可以使用https加密。
 服务端：
+
 ```
 docker run -n fcbreak --host \
     -v /certs:<证书目录>:ro   \
@@ -88,6 +94,7 @@ docker run -n fcbreak --host \
 ```
 
 客户端配置文件：
+
 ```
 [common]
 server = https://<用户名>:<密码>@<服务器地址>:7000
@@ -95,6 +102,7 @@ server = https://<用户名>:<密码>@<服务器地址>:7000
 ```
 
 如果使用自签证书，客户端可以挂载公钥以保证安全
+
 ```
 docker run -n fcbreak --host \
     -v /etc/ssl/certs/ca-certificates.crt:<公钥地址>:ro \
@@ -102,10 +110,13 @@ docker run -n fcbreak --host \
 ```
 
 ### HTTPS
-客户端可以转发https，如果后端为http，还会设置`X-Forwarded-For`、`X-Real-IP`等头部通知后端真实IP。
+
+客户端可以转发https，如果后端为http，还会设置 `X-Forwarded-For`、`X-Real-IP`等头部通知后端真实IP。
 
 #### ACME证书
+
 由于HTTP-01的验证方式不太可行，建议选择DNS-01配置dns注册泛域名证书。
+
 ```
 [https_http] # 暴露https服务，后端为http
 type = https
@@ -125,10 +136,12 @@ https_key = <私钥位置>
 ```
 
 ### 域名转跳
+
 如果您部署了证书，转跳到IP地址时就会因名称不同而造成证书无效。
 
 此时您可以部署DDNS域名或NIP域名的方式，设置转跳的域名地址。
 DDNS和NIP只需设置一个即可。
+
 ```
 [https_http] # 暴露https服务，后端为http
 type = https
@@ -145,16 +158,19 @@ http_nip_domain = ip.example.com
 ```
 
 #### NIP说明
-NIP是一种特殊的域名，它与IP地址一一对应，如`114-514-19-19.ip.example.com`会解析为`114.514.19.19`。
-这样既可以解决动态IP问题，也可以通过泛域名证书`*.ip.example.com`来认证。NIP会比DDNS更及时地更新IP。
+
+NIP是一种特殊的域名，它与IP地址一一对应，如 `114-514-19-19.ip.example.com`会解析为 `114.514.19.19`。
+这样既可以解决动态IP问题，也可以通过泛域名证书 `*.ip.example.com`来认证。NIP会比DDNS更及时地更新IP。
 
 NIP的服务器需要另外部署，参见[sslip.io](https://sslip.io/)。
 
 ### 虚拟服务
+
 每一个HTTP服务都占据一个端口很占用端口空间，可以配置虚拟服务器，共享API的端口。
 https、http均可使用。
 但如果使用https服务则需要开启https API端口，使用http服务则需要开启http API端口。两种API接口可以同时打开。
 Hostname可以在开始或末尾存在一个通配符*，按照 完全匹配 > 开头的通配符 > 结尾的通配符 的顺序匹配。
+
 ```
 [http] # 暴露http服务
 type = http
@@ -171,13 +187,16 @@ https_crt = <公钥位置>
 https_key = <私钥位置>
 http_hostname = svc.example.com, svc.foobar.com, \*.example.com, foobar.org.\*
 ```
-另外还需设置`svc.example.com`和`svc.foobar.com`指向服务器地址。
 
-完成后可以访问`http://svc.example.com:<HTTP API端口>`或`https://svc.foobar.com:<HTTPS API端口>`。
+另外还需设置 `svc.example.com`和 `svc.foobar.com`指向服务器地址。
+
+完成后可以访问 `http://svc.example.com:<HTTP API端口>`或 `https://svc.foobar.com:<HTTPS API端口>`。
 
 ### 服务端部署于代理之后
+
 如果代理支持proxy protocol并能正确设置源IP及源端口，则本服务可以部署于代理之后。
 服务器开启proxy protocol：
+
 ```
 docker run -n fcbreak gzmaxsum/fcbreak-server  \
     -l [<监听IP>]:<端口>  \     # HTTP 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
@@ -190,7 +209,9 @@ docker run -n fcbreak gzmaxsum/fcbreak-server  \
 ```
 
 ### 认证
+
 http/https服务，均可以开启认证
+
 ```
 [http] # 暴露http服务
 type = http
@@ -201,6 +222,7 @@ http_password = <密码>
 ```
 
 ### HTTP/HTTPS代理
+
 仅暴露http服务有时并不足够，此时可以暴露一个HTTP代理，从而连接到内网。
 由于代理可能造成安全隐患，请务必设置认证，且尽量选择https代理。
 
@@ -227,8 +249,10 @@ quanx订阅：`https://<服务器IP>:5201/quanx`
 您也可以编写脚本访问API来获取直连地址。
 
 ### AltSvc
-部分浏览器支持`AltSvc`功能，允许在域名不变的情况下更换后端服务器地址。
+
+部分浏览器支持 `AltSvc`功能，允许在域名不变的情况下更换后端服务器地址。
 此功能通常需要HTTPS。而且并不是任何情况都可以开启，可能造成流量经过服务器中转的情况，请谨慎开启。
+
 ```
 [https_http]
 type = https
@@ -241,13 +265,37 @@ http_altsvc = true     # [可选] 使用altsvc代替转跳。
 ```
 
 ### 连接器
+
 连接器支持在linux下访问API获取暴露的服务，并维护iptables规则。从而在本机无感地访问内网服务。
+
 ```
 sudo ./connector
     -s http[s]://[<user>:<pass>@]<server host>:<server port> # 服务器 API
     [-i <interval>]               # 更新间隔，默认为 300s
 ```
 
+### 其他更新暴露地址的方式
+
+你可以通过`services_info_path`读取到服务的暴露地址，从而通过其他方式（如其他订阅、协议、API）通知客户端。
+
+客户端设置：
+```
+[common]
+services_info_path = /run/fcbreak/services # 默认为/run/fcbreak/services
+```
+
+```
+# cat /run/fcbreak/services/<服务名>
+{
+ "name": "<服务名>",
+ "remote_addr": ":1100",
+ "exposed_addr": "114.51.4.19:810",
+ "scheme": "https",
+ "hostnames": [
+  "foo.bar"
+ ]
+}
+```
 
 ## 详细参数
 
@@ -263,7 +311,9 @@ sudo ./connector
     [-u <username>]     \      # [可选]服务端用户名
     [-p <password>]     \      # [可选]服务端密码
 ```
+
 Docker 服务端：
+
 ```
 docker run -n fcbreak --host gzmaxsum/fcbreak-server  \
     -l [<监听IP>]:<端口>  \     # HTTP 监听API，用于与客户端通信。-l或-s至少设置一个，可以设置多个
@@ -283,6 +333,7 @@ docker run -n fcbreak --host gzmaxsum/fcbreak-server  \
 ```
 
 Docker 客户端：
+
 ```
 docker run -n fcbreak --host -v /config.ini:<配置文件路径>:ro gzmaxsum/fcbreak-client
 ```
@@ -297,6 +348,7 @@ heartbeat_interval = 5 # [可选] 心跳间隔，保持到服务器的连接，�
 skip_verify = false    # [可选] 跳过TLS检测，如果服务器使用的是自签证书，可以使用该项。
 request_timeout = 5    # [可选] 访问API的时间限制，默认为5s。
 use_ipv6 = false       # [可选] 使用IPv6连接到服务器，一般只需要穿透IPv4，默认为false。
+services_info_path =   # [可选] 服务地址等信息的保存位置。默认为/run/fcbreak/services
 
 [ssh]                  # 一个section为一个对外暴露的服务
 type = tcp             # 服务类型，目前支持tcp/http/https

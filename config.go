@@ -20,6 +20,10 @@ type ClientCommonConf struct {
 	// UseIPv6 specifies if the connection to server should use IPv6 instead of IPv4.
 	// By default, this value is false.
 	UseIPv6 bool `ini:"use_ipv6" json:"use_ipv6"`
+	// ServiceInfoPath specifies a directory for service info to be saved to.
+	// External services can obtain the exposed address and port from the file.
+	// By default, this value is /run/fcbreak/services/
+	ServicesInfoPath string `ini:"services_info_path" json:"services_info_path"`
 }
 
 func GetDefaultClientConf() ClientCommonConf {
@@ -30,6 +34,7 @@ func GetDefaultClientConf() ClientCommonConf {
 		HeartbeatTimeout:  90,
 		RequestTimeout:    5,
 		UseIPv6:           false,
+		ServicesInfoPath:  "/run/fcbreak/services",
 	}
 }
 

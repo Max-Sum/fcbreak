@@ -41,6 +41,14 @@ func main() {
 		os.Exit(2)
 	}
 
+	if len(commonCfg.ServicesInfoPath) > 0 {
+		err = os.MkdirAll(commonCfg.ServicesInfoPath, 755)
+		if err != nil {
+			log.Fatalf("%v", err)
+			os.Exit(3)
+		}
+	}
+
 	svcs = make(map[string]*fcbreak.ServiceClient)
 
 	// Start Client
