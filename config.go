@@ -55,6 +55,7 @@ type HTTPServiceConf struct {
 	Username      string `ini:"http_username"`
 	Password      string `ini:"http_password"`
 	CacheTime     int    `ini:"http_cache_time"`
+	Redirect      bool   `ini:"http_redirect"`
 	AltSvc        bool   `ini:"http_altsvc"`
 	DDNSDomain    string `ini:"http_ddns_domain"`
 	NIPDomain     string `ini:"http_nip_domain"`
@@ -82,6 +83,7 @@ func GetDefaultServiceConf() ServiceConf {
 			Backend:       "http",
 			TLSCert:       "",
 			TLSKey:        "",
+			Redirect:      true,
 			AltSvc:        false,
 			ProxyInsecure: false,
 			NIPDomain:     "",

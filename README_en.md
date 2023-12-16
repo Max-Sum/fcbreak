@@ -32,7 +32,8 @@ Client:
 Client Config File:
 
 ```
-[common]
+
+http_redirect = false  # [可选] 跳转到exposed_addr:exposed_port，默认为true。[common]
 server = http://<user>:<pass>@<server host>:<server port> # Server API address
 heartbeat_interval = 15 # [Optional] Heartbeat frequency
 skip_verify = false    # [Optional] Skip TLS certification verification, default false.
@@ -58,6 +59,7 @@ http_nip_domain = ip.example.com
                        # [Optional] Set AltSvc domain. If set, redirection will use pattern like
                        #  1-1-1-1.ip.example.com instead of IP. ddns domain will not be used if this is set.
 http_cache_time = 0    # [Optional] Cache time of HTTP, will also control the HTTP Redirect cache.
+http_redirect = false  # [Optional] Enable redirection to exposed_ip:exposed_port, enabled by default.
 http_altsvc = true     # [Optional] Use AltSvc instead of redirection
 
 [https_service]

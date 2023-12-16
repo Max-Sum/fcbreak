@@ -95,7 +95,7 @@ func (s *HTTPService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Proxied from Server
 	useAltSvc := s.cfg.AltSvc && supportAltSvc(r.UserAgent())
-	if conn.IsReflected && !useAltSvc {
+	if conn.IsReflected && !useAltSvc && s.cfg.Redirect {
 		u := r.URL
 		if r.TLS == nil {
 			u.Scheme = "http"

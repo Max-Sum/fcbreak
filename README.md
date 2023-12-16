@@ -276,9 +276,10 @@ sudo ./connector
 
 ### 其他更新暴露地址的方式
 
-你可以通过`services_info_path`读取到服务的暴露地址，从而通过其他方式（如其他订阅、协议、API）通知客户端。
+你可以通过 `services_info_path`读取到服务的暴露地址，从而通过其他方式（如其他订阅、协议、API）通知客户端。
 
 客户端设置：
+
 ```
 [common]
 services_info_path = /run/fcbreak/services # 默认为/run/fcbreak/services
@@ -379,7 +380,8 @@ http_nip_domain = ip.example.com
 http_username=proxy    # [可选] http认证用户名
 http_password=password # [可选] http认证密码
 http_cache_time = 0    # [可选] 转跳的缓存时间。在缓存期间，浏览器会自动转跳。默认为300s。
-http_altsvc = true     # [可选] 使用altsvc代替转跳。
+http_redirect = false  # [可选] 跳转到exposed_addr:exposed_port，默认为true。
+http_altsvc = true     # [可选] 当User-Agent判断为支持AltSvc时，使用altsvc代替转跳。
 http_backend=https     # [可选] HTTP后端，可选http/https/proxy。proxy详见下面的section
 
 [https_service]        # HTTPS类型
